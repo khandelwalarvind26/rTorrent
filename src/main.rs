@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs::File;
 use std::fmt;
 use torrent_rust::bencoded_parser::{Bencode, Element};
@@ -17,18 +16,17 @@ fn main() {
     let mut file = File::open("/home/arvind/Downloads/abc.torrent").unwrap();
     let (decoded, info_hash) = Bencode::decode(&mut file).unwrap();
     
-    let (announce_url, name, piece_length, _info) = parse_decoded(&decoded).unwrap(); 
+    let (announce_url, name, piece_length) = parse_decoded(&decoded).unwrap(); 
 
     println!("Announce Url: {announce_url}\nName: {name}\nHash: {info_hash}\nPiece Length: {piece_length}");
-    
+
 }
 
-fn parse_decoded(decoded: &Element) -> Result<(String, String, i64, &HashMap<String,Element>), InvalidTorrentFile> {
+fn parse_decoded(decoded: &Element) -> Result<(String, String, i64), InvalidTorrentFile> {
 
     let mut announce = String::new();
     let mut name = String::new();
     let mut piece_length = 0;
-    let refer;
 
     match decoded {
         Element::Dict(mp) => {
@@ -42,11 +40,6 @@ fn parse_decoded(decoded: &Element) -> Result<(String, String, i64, &HashMap<Str
 
             // Get info of torrent file
             if mp.contains_key("info") {
-
-                match &mp["info"] {
-                    Element::Dict(tmp) => { refer = tmp },
-                    _ => { return Err(InvalidTorrentFile{case: 2}); }
-                }
 
                 match &mp["info"] {
                     Element::Dict(info_mp) => {
@@ -65,7 +58,7 @@ fn parse_decoded(decoded: &Element) -> Result<(String, String, i64, &HashMap<Str
         _ => { return Err(InvalidTorrentFile{case: 5}); }
         
     }
-    Ok((announce,name,piece_length, refer))
+    Ok((announce,name,piece_length))
 }
 
 
