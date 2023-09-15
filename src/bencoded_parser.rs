@@ -145,7 +145,6 @@ impl Bencode {
 
             // Key of the Dict is always a ByteString so first read key
             if let Element::ByteString(key) = self.read_byte_string()? {
-
                 
                 if key == "info" {
                     self.info_ind.0 = self.ind as i32;
@@ -163,9 +162,6 @@ impl Bencode {
                     mp.insert(key, value); 
 
                 }
-                
-
-
 
             }
 
