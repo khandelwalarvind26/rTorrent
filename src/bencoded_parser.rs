@@ -48,7 +48,7 @@ impl Bencode {
 
     }
 
-    pub fn decode(f: &mut File) -> Result<(Element, String)> {
+    pub fn decode(f: &mut File) -> Result<(Element, [u8;20])> {
 
         // Create a buff reader and read the entire .torrent file into buf as bytes
         let mut buf = Vec::new();
@@ -60,7 +60,7 @@ impl Bencode {
 
     }
 
-    fn calculate_hash(&mut self) -> String {
+    fn calculate_hash(&mut self) -> [u8;20] {
 
         // Define hahser
         let mut hasher = Sha1::new();
@@ -73,7 +73,7 @@ impl Bencode {
 
         // Update hasher and generate hash
         hasher.update(&info_string);
-        hasher.digest().to_string()
+        hasher.digest().bytes()
 
     }
 

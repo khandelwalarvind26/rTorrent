@@ -7,7 +7,7 @@ struct Request {
     connection_id: u64,
     action: u32,
     transaction_id: u32,
-    info_hash: String,
+    info_hash: [u8; 20],
     peer_id: [u8; 20],
     downloaded: u64,
     left: u64,
@@ -27,7 +27,7 @@ impl Request {
         buf.write_u64::<BigEndian>(self.connection_id).unwrap(); //Connection id
         buf.write_u32::<BigEndian>(self.action).unwrap(); // Action
         buf.write_u32::<BigEndian>(self.transaction_id).unwrap(); // Transaction id
-        for byte in self.info_hash.as_bytes() { buf.write_u8(byte.clone()).unwrap(); } // Info hash
+        for byte in self.info_hash { buf.write_u8(byte).unwrap(); } // Info hash
         for byte in self.peer_id { buf.write_u8(byte).unwrap(); } // Peer id
         buf.write_u64::<BigEndian>(self.downloaded).unwrap(); // downloaded
         buf.write_u64::<BigEndian>(self.left).unwrap(); // left
@@ -37,7 +37,7 @@ impl Request {
         buf.write_u32::<BigEndian>(self.key).unwrap(); // key
         buf.write_i32::<BigEndian>(self.num_want).unwrap();
         buf.write_u16::<BigEndian>(self.port).unwrap();
-
+        
         buf
     }
 }
@@ -45,9 +45,9 @@ impl Request {
 #[derive(Debug)]
 struct Response {
     action: u32,
-    transaction_id: u32,
-    interval: u32,
-    leechers: u32,
+    _transaction_id: u32,
+    _interval: u32,
+    _leechers: u32,
     seeders: u32,
     peer_list: Vec<(u32,u16)>
 }
@@ -65,7 +65,7 @@ fn gen_peer_id() -> [u8; 20] {
 }
 
 // Function to build a request for announce
-fn build_announce_req(conn_id: u64, info_hash: &String, length: &u64, peer_id:&[u8;20] ) -> Vec<u8> {
+fn build_announce_req(conn_id: u64, info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20] ) -> Vec<u8> {
 
     let req = Request {
         connection_id: conn_id,
@@ -135,9 +135,9 @@ fn parse_announce_resp(mut buf: &[u8]) -> Response {
 
     let mut parsed = Response { 
         action: buf.read_u32::<BigEndian>().unwrap(),
-        transaction_id: buf.read_u32::<BigEndian>().unwrap(), 
-        interval:buf.read_u32::<BigEndian>().unwrap(),
-        leechers: buf.read_u32::<BigEndian>().unwrap(), 
+        _transaction_id: buf.read_u32::<BigEndian>().unwrap(), 
+        _interval:buf.read_u32::<BigEndian>().unwrap(),
+        _leechers: buf.read_u32::<BigEndian>().unwrap(), 
         seeders: buf.read_u32::<BigEndian>().unwrap(),
         peer_list: Vec::new()
     };
@@ -168,6 +168,7 @@ async fn peer_list_helper(torrent: &Torrent, announce_url: &String, socket: &Udp
 
     let mut res:[u8; 16] = [0; 16];
     let connect_request = build_connection_req();
+    
 
     // Send Connection request
     if let Ok(_) = socket.send(&connect_request).await {
@@ -199,9 +200,9 @@ async fn peer_list_helper(torrent: &Torrent, announce_url: &String, socket: &Udp
     let (action, _, connection_id) = parse_connection_resp(&res);
     dbg!(action);
     
-    let mut res = [0; 512];
+    let mut res = [0; 8192];
     let announce_req = build_announce_req(connection_id, &torrent.info_hash, &torrent.length, &torrent.peer_id);
-
+    
     for t in 0..8 {
         // Make announce request
         socket.send(&announce_req).await.unwrap();
@@ -218,7 +219,7 @@ async fn peer_list_helper(torrent: &Torrent, announce_url: &String, socket: &Udp
     
     // Parse Announce Response
     let resp = parse_announce_resp(&mut res);
-    println!("{:#?}",resp);
+    // println!("{:#?}",resp);
     dbg!(resp.action);
 
     Some(resp.peer_list)
@@ -242,7 +243,7 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
         
         if let Some(peers) = peer_list_helper(&torrent, announce_url, &socket).await {
             for peer in peers {
-                torrent.peer_list.push(peer);
+                torrent.peer_list.insert(peer);
             }
         }
 
@@ -258,8 +259,9 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
                 println!("Recieved {} peers", peers.len());
 
                 for peer in peers {
-                    torrent.peer_list.push(peer);
+                    torrent.peer_list.insert(peer);
                 }
+                println!("Total peers: {}", torrent.peer_list.len());
             }
             else {
                 println!("Recieved None peers");

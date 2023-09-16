@@ -1,4 +1,5 @@
 use super::bencoded_parser::Element;
+use std::collections::HashSet;
 use std::{fmt,fs::File};
 use super::bencoded_parser::Bencode;
 use super::tracker;
@@ -9,9 +10,9 @@ pub struct Torrent {
     pub announce_list: Option<Vec<String>>,
     pub name: String,
     pub length: u64,
-    pub info_hash: String,
+    pub info_hash: [u8; 20],
     pub piece_length: u64,
-    pub peer_list: Vec<(u32,u16)>,
+    pub peer_list: HashSet<(u32,u16)>,
     pub peer_id: [u8; 20]
 }
 
@@ -22,7 +23,7 @@ impl Torrent {
         let (decoded, info_hash) = Bencode::decode(file).unwrap();
         let (announce_url, announce_list, name, piece_length, _hashes, length) = Torrent::parse_decoded_helper(&decoded)?;
 
-        let mut torrent = Torrent { announce_url, announce_list, name, length, info_hash, piece_length, peer_list: Vec::new(), peer_id: [0; 20] };
+        let mut torrent = Torrent { announce_url, announce_list, name, length, info_hash, piece_length, peer_list: HashSet::new(), peer_id: [0; 20] };
         torrent = tracker::get_peers(torrent).await;
 
         Ok(torrent)

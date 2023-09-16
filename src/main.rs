@@ -1,6 +1,7 @@
 use std::{fs::File,env};
 use torrent_rust::torrent_parser::Torrent;
 use tokio;
+use torrent_rust::download;
 
 #[tokio::main]
 async fn main() {
@@ -16,9 +17,9 @@ async fn main() {
     let torrent = Torrent::parse_decoded(&mut file).await.unwrap(); 
 
     // Show all info
-    dbg!(&torrent);
+    // dbg!(&torrent);
 
     // Download torrent
-
+    download::download_file(torrent).await;
 
 }
