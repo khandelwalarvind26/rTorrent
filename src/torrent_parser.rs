@@ -1,34 +1,40 @@
 use super::bencoded_parser::Element;
 use std::{fmt,fs::File};
 use super::bencoded_parser::Bencode;
+use super::tracker;
 
 #[derive(Debug)]
 pub struct Torrent {
-    pub announce_url: String,
+    pub announce_url: Option<String>,
+    pub announce_list: Option<Vec<String>>,
     pub name: String,
     pub length: u64,
     pub info_hash: String,
-    pub piece_length: u64
+    pub piece_length: u64,
+    pub peer_list: Vec<(u32,u16)>,
+    pub peer_id: [u8; 20]
 }
 
 impl Torrent {
 
-    pub fn parse_decoded(file: &mut File) -> Result<Torrent, InvalidTorrentFile> {
+    pub async fn parse_decoded(file: &mut File) -> Result<Torrent, InvalidTorrentFile> {
 
         let (decoded, info_hash) = Bencode::decode(file).unwrap();
-        let (announce_url, name, piece_length, _hashes, length) = Torrent::parse_decoded_helper(&decoded)?;
+        let (announce_url, announce_list, name, piece_length, _hashes, length) = Torrent::parse_decoded_helper(&decoded)?;
 
-        Ok(
-            Torrent { announce_url, name, length, info_hash, piece_length }
-        )
+        let mut torrent = Torrent { announce_url, announce_list, name, length, info_hash, piece_length, peer_list: Vec::new(), peer_id: [0; 20] };
+        torrent = tracker::get_peers(torrent).await;
+
+        Ok(torrent)
 
     }
 
 
     // Function to return Announce Url, name, piece length and hashes from a decoded torrent file
-    fn parse_decoded_helper(decoded: &Element) -> Result<(String, String, u64, Vec<String>, u64), InvalidTorrentFile> {
+    fn parse_decoded_helper(decoded: &Element) -> Result<(Option<String>, Option<Vec<String>>, String, u64, Vec<String>, u64), InvalidTorrentFile> {
 
-        let mut announce = String::new();
+        let mut announce = None;
+        let mut announce_list = None;
         let mut name = String::new();
         let mut piece_length = 0;
         let hashes = Vec::new();
@@ -37,12 +43,28 @@ impl Torrent {
         match decoded {
             Element::Dict(mp) => {
 
-                // Get name of torrent file
-                if mp.contains_key("announce") {
-                    if let Element::ByteString(s) = &mp["announce"] { announce += s; } 
-                    else { return Err(InvalidTorrentFile{case: 0}); }
-                } 
-                else { return Err(InvalidTorrentFile{case: 1}); }
+                // Get List of announce urls
+                if mp.contains_key("announce-list") {
+                    let mut tmp = Vec::new();
+                    if let Element::List(l) = &mp["announce-list"] {
+                        for i in l {
+                            if let Element::List(l1) = i {
+                                if let Element::ByteString(s) = &l1[0] {
+                                    tmp.push(s.clone());
+                                }
+                            } 
+                        }
+                    }
+                    announce_list = Some(tmp);
+                }
+                else { 
+                    // Get Announce url of torrent file
+                    if mp.contains_key("announce") {
+                        if let Element::ByteString(s) = &mp["announce"] { announce = Some(s.clone()); } 
+                        else { return Err(InvalidTorrentFile{case: 0}); }
+                    } 
+                    else { return Err(InvalidTorrentFile{case: 1}); }
+                }
 
                 // Get info of torrent file
                 if mp.contains_key("info") {
@@ -99,7 +121,7 @@ impl Torrent {
             _ => { return Err(InvalidTorrentFile{case: 5}); }
             
         }
-        Ok((announce,name,piece_length as u64, hashes, length.abs() as u64))
+        Ok((announce,announce_list,name,piece_length as u64, hashes, length.abs() as u64))
     }
 }
 
