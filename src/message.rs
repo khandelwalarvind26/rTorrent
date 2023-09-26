@@ -1,5 +1,5 @@
 use byteorder::{WriteBytesExt, BigEndian};
-use super::tracker::gen_random_id;
+// use super::tracker::gen_random_id;
 // use crate::torrent_parser::Torrent;
 
 enum _Message {
