@@ -53,7 +53,7 @@ struct Response {
 }
 
 // Generate a random peer id
-fn gen_peer_id() -> [u8; 20] {
+pub fn gen_random_id() -> [u8; 20] {
 
     let mut buf: [u8; 20] = [0;20];
     for i in  0..20 {
@@ -231,7 +231,7 @@ async fn peer_list_helper(torrent: &Torrent, announce_url: &String, socket: &Udp
 pub async fn get_peers(mut torrent: Torrent) -> Torrent {
 
     // Assign peer id
-    torrent.peer_id = gen_peer_id();
+    torrent.peer_id = gen_random_id();
 
     // Create udp socket
     let socket = UdpSocket::bind("0.0.0.0:8080").await.unwrap();

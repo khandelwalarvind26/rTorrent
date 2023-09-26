@@ -16,9 +16,6 @@ async fn main() {
     // All info mentioned in torrent file
     let torrent = Torrent::parse_decoded(&mut file).await.unwrap(); 
 
-    // Show all info
-    // dbg!(&torrent);
-
     // Download torrent
     download::download_file(torrent).await;
 

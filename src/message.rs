@@ -1,5 +1,5 @@
 use byteorder::{WriteBytesExt, BigEndian};
-
+use super::tracker::gen_random_id;
 // use crate::torrent_parser::Torrent;
 
 enum _Message {
@@ -77,5 +77,22 @@ impl HandshakeMsg {
         }
 
         buf
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::tracker::gen_random_id;
+
+    use super::HandshakeMsg;
+
+    #[test]
+    fn test_build_msg() {
+
+
+        let buf = HandshakeMsg::build_msg(gen_random_id(), gen_random_id());
+        assert_eq!(buf.len(), 68);
+
     }
 }
