@@ -9,8 +9,9 @@ async fn main() {
     // Open file and get decoded and info hash
     let mut args = env::args();
     args.next();
+
     let mut dir = env::current_dir().unwrap();
-    dir = dir.join(args.next().unwrap());
+    dir = dir.join(args.next().unwrap_or("Enter Arguments".to_string()));
     let mut file = File::open(dir).unwrap();
     
     // All info mentioned in torrent file
