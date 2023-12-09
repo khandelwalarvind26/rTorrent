@@ -245,7 +245,6 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
     // Check for announce_url and announce_list
     if let Some(announce_url) = torrent.announce_url.clone() {
         
-        // let sock_ref = Arc::clone(&sock_ref);
         if let Some(peers) = peer_list_helper(&torrent.info_hash, &torrent.length, &torrent.peer_id, announce_url, port).await {
             for peer in peers {
                 torrent.peer_list.insert(peer);
@@ -265,7 +264,6 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
             if announce_url[0..=5].as_bytes() != "udp://".as_bytes() { continue; } 
             
             let tor_ref = Arc::clone(&tor_ref);
-            // let sock_ref = Arc::clone(&sock_ref);
 
             let h = tokio::spawn(async move{
 
@@ -277,7 +275,7 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
                         let mut tor = tor_ref.lock().await;
                         (*tor).insert(peer);
                     }
-                    // println!("Total peers: {}",);
+                    
                 }
                 else {
                     println!("Recieved None peers");
@@ -293,7 +291,7 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
         for handle in handles {
             handle.await.unwrap();
         }
-
+        
         let st = tor_ref.lock().await.clone();
         torrent.peer_list = st;
 
