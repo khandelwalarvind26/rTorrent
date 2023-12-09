@@ -79,6 +79,9 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
                 Ok(bytes_read) => {
                     // Check whether response handshake or not
                     if bytes_read == 64 && String::from_utf8_lossy(&buf[..=19])[1..] == "BitTorrent protocol".to_string() {
+                        // Read waste 4 bytes
+                        let mut tmp = [0; 4];
+                        let _res = timeout(tokio::time::Duration::from_secs(2),stream.read_exact(&mut tmp)).await;
                         // Handle Torrent further from here
                         handle_connection(stream).await;
                     }
@@ -89,7 +92,7 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
                 },
 
                 Err(err) => {
-                    println!("{err}");
+                    println!("Error: {err}");
     
                 }
             }
@@ -105,18 +108,20 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 
 
 async fn handle_connection(mut stream: TcpStream) {
-
+    
     let mut first_iter = true;
 
     loop {
-        let mut buf = [0; 4];
+        let mut buf  = [0; 4];
 
         // Read Message and length
         let res = timeout(tokio::time::Duration::from_secs(120),stream.read_exact(&mut buf)).await;
         match res {
             Ok(resp) => {
                 match resp {
-                    Ok(_bytes_read) => {},
+                    Ok(_bytes_read) => {
+                        // println!("First repsonse bytes read : {}", bytes_read);
+                    },
                     Err(err) => {
                         println!("{err}");
                         return;
@@ -128,63 +133,80 @@ async fn handle_connection(mut stream: TcpStream) {
                 return;
             }
         }
-        println!("{:?}", buf);
+
         let len = ReadBytesExt::read_u32::<BigEndian>(&mut buf.as_ref()).unwrap();
-        // Read id of message
+
+        let msg = on_whole_msg(&mut stream, len).await;
+        
+        // // Read id of message
         let mut id = None;
         if len >= 1 {
-            let mut buf = [0];
-            stream.read_exact(&mut buf).await.unwrap();
-            id = Some(buf[0]);
+            id = Some(msg[0]);
 
         }
 
-        // check if message is bitfield message
+        // // check if message is bitfield message
         let mut bitfield = None;
         if first_iter {
             first_iter = false;
             if len > 1 && id == Some(5) {
-                bitfield = Some(vec![0; (len-1) as usize]);
-                stream.read_exact(&mut bitfield.unwrap()).await.unwrap();
+                let mut tmp = vec![];
+                for i in 1..len {
+                    tmp.push(msg[i as usize]);
+                }
+                bitfield = Some(tmp);
                 continue;
             }
-        }   
+            
+        }
 
-        println!("{len},{:?},{:?}",id,bitfield);
-        // match len {
-        //     0 => {
-        //         //keep-alive
-        //     },
-        //     1 => {
 
-        //         // choke/unchoke/interested/not_interested
-        //         match id {
-        //             0 => {
-        //                 //choke
-        //             },
-        //             1 => {
-        //                 //unchoke
-        //             },
-        //             2 => {
-        //                 //interested
-        //             },
-        //             3 => {
-        //                 // not interested
-        //             },
-        //             _ => {
-        //                 //invalid resp
-        //             }
-        //         }
+        match len {
+            0 => {
+                //keep-alive
+            },
+            1 => {
 
-        //     },
-        //     5 => {
-        //         //have
-        //     },
-        //     _ => {
+                // choke/unchoke/interested/not_interested
+                match id {
+                    Some(0) => {
+                        //choke
+                    },
+                    Some(1) => {
+                        //unchoke
+                    },
+                    Some(2) => {
+                        //interested
+                    },
+                    Some(3) => {
+                        // not interested
+                    },
+                    _ => {
+                        //invalid resp
+                    }
+                }
 
-        //     }
-        // }
+            },
+            5 => {
+                //have
+            },
+            _ => {
+
+            }
+        }
         break;
     }
 
+}
+
+
+async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
+
+    let mut ret = Vec::new();
+    while ret.len() < len as usize {
+        let mut buf = [0];
+        timeout(tokio::time::Duration::from_secs(10),stream.read_exact(&mut buf)).await.unwrap().unwrap();
+        ret.push(buf[0]);
+    }
+    ret
 }
