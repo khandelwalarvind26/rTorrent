@@ -1,3 +1,5 @@
+use std::{sync::Arc, collections::HashSet};
+use tokio::sync::Mutex;
 use tokio::{net::UdpSocket, time::timeout};
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 use url::{Url, Host};
@@ -106,7 +108,7 @@ fn build_connection_req() -> Vec<u8> {
 }
 
 // Convert Url into connect format
-fn parse_url(announce_url: &String) -> (String, String) {
+fn parse_url(announce_url: String) -> (String, String) {
 
     let parsed_url = Url::parse(&announce_url).unwrap();
     let mut remote_addr = String::new();
@@ -152,19 +154,20 @@ fn parse_announce_resp(mut buf: &[u8]) -> Response {
 
 }
 
-async fn peer_list_helper(torrent: &Torrent, announce_url: &String, socket: &UdpSocket) -> Option<Vec<(u32,u16)>> {
+async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, sock: Arc<Mutex<UdpSocket>>) -> Option<Vec<(u32,u16)>> {
 
     let (remote_addr, _path) = parse_url(announce_url);
 
     // Connect to remote addr
     println!("{remote_addr}");
+        let socket = sock.lock().await;
 
-    if let Ok(()) = socket.connect(&remote_addr).await {
-        println!("Connected to {remote_addr}");
-    }
-    else {
-        return None;
-    }
+        if let Ok(()) = socket.connect(&remote_addr).await {
+            println!("Connected to {remote_addr}");
+        }
+        else {
+            return None;
+        }
 
     let mut res:[u8; 16] = [0; 16];
     let connect_request = build_connection_req();
@@ -201,7 +204,7 @@ async fn peer_list_helper(torrent: &Torrent, announce_url: &String, socket: &Udp
     dbg!(action);
     
     let mut res = [0; 8192];
-    let announce_req = build_announce_req(connection_id, &torrent.info_hash, &torrent.length, &torrent.peer_id);
+    let announce_req = build_announce_req(connection_id, info_hash, length, peer_id);
     
     for t in 0..8 {
         // Make announce request
@@ -235,39 +238,63 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
 
     // Create udp socket
     let socket = UdpSocket::bind("0.0.0.0:8080").await.unwrap();
+    let sock_ref = Arc::new(Mutex::new(socket));
 
     println!();
 
     // Check for announce_url and announce_list
-    if let Some(announce_url) = &torrent.announce_url {
+    if let Some(announce_url) = torrent.announce_url.clone() {
         
-        if let Some(peers) = peer_list_helper(&torrent, announce_url, &socket).await {
+        let sock_ref = Arc::clone(&sock_ref);
+        if let Some(peers) = peer_list_helper(&torrent.info_hash, &torrent.length, &torrent.peer_id, announce_url, sock_ref).await {
             for peer in peers {
                 torrent.peer_list.insert(peer);
             }
         }
 
-    } else if let Some(announce_list) = &torrent.announce_list {
+    } else if let Some(announce_list) = torrent.announce_list.clone() {
+
+        let info_hash = torrent.info_hash;
+        let length = torrent.length;
+        let peer_id = torrent.peer_id;
+        let st: HashSet<(u32,u16)> = HashSet::new();
+        let tor_ref = Arc::new(Mutex::new(st));
+        let mut handles = vec![];
 
         for announce_url in announce_list {
-            
+
             // println!("{announce_url}");
             if announce_url[0..=5].as_bytes() != "udp://".as_bytes() { continue; } 
+            
+            let tor_ref = Arc::clone(&tor_ref);
+            let sock_ref = Arc::clone(&sock_ref);
 
-            if let Some(peers) = peer_list_helper(&torrent, &announce_url, &socket).await {
+            let h = tokio::spawn(async move{
 
-                println!("Recieved {} peers", peers.len());
+                if let Some(peers) = peer_list_helper(&info_hash, &length, &peer_id, announce_url, sock_ref).await {
 
-                for peer in peers {
-                    torrent.peer_list.insert(peer);
+                    println!("Recieved {} peers", peers.len());
+
+                    for peer in peers {
+                        let mut tor = tor_ref.lock().await;
+                        (*tor).insert(peer);
+                    }
+                    // println!("Total peers: {}",);
                 }
-                println!("Total peers: {}", torrent.peer_list.len());
-            }
-            else {
-                println!("Recieved None peers");
-            }
-            println!();
+                else {
+                    println!("Recieved None peers");
+                }
+                println!();
+            });                
+            handles.push(h);
         }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        let st = tor_ref.lock().await.clone();
+        torrent.peer_list = st;
 
     }
     
