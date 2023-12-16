@@ -18,6 +18,7 @@ async fn main() {
     let torrent = Torrent::parse_decoded(&mut file).await.unwrap(); 
 
     // Download torrent
-    download::download_file(torrent).await;
+    let file = File::create("/home/arvind/Downloads/".to_string() + &torrent.name.to_owned()).unwrap();
+    download::download_file(torrent, file).await;
 
 }

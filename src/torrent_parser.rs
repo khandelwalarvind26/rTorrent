@@ -1,8 +1,12 @@
 use super::bencoded_parser::Element;
 use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::{fmt,fs::File};
 use super::bencoded_parser::Bencode;
 use super::tracker;
+
+static BLOCK_SIZE: u64 = 16384; //2^14
 
 #[derive(Debug)]
 pub struct Torrent {
@@ -13,7 +17,9 @@ pub struct Torrent {
     pub info_hash: [u8; 20],
     pub piece_length: u64,
     pub peer_list: HashSet<(u32,u16)>,
-    pub peer_id: [u8; 20]
+    pub peer_id: [u8; 20],
+    pub piece_freq: Arc<Mutex<Vec<(u16, Vec<bool>)>>>,
+    pub no_blocks: u64
 }
 
 impl Torrent {
@@ -21,9 +27,20 @@ impl Torrent {
     pub async fn parse_decoded(file: &mut File) -> Result<Torrent, InvalidTorrentFile> {
 
         let (decoded, info_hash) = Bencode::decode(file).unwrap();
-        let (announce_url, announce_list, name, piece_length, _hashes, length) = Torrent::parse_decoded_helper(&decoded)?;
+        let (announce_url, announce_list, name, piece_length, _hashes, length, piece_no) = Torrent::parse_decoded_helper(&decoded)?;
+        let no_blocks = piece_length/BLOCK_SIZE;
 
-        let mut torrent = Torrent { announce_url, announce_list, name, length, info_hash, piece_length, peer_list: HashSet::new(), peer_id: [0; 20] };
+        let mut torrent = Torrent { 
+            announce_url, 
+            announce_list, 
+            name, 
+            length, 
+            info_hash, 
+            piece_length, 
+            peer_list: HashSet::new(), peer_id: [0; 20], 
+            piece_freq: Arc::new(Mutex::new(vec![(0,vec![false; no_blocks as usize]); piece_no])),
+            no_blocks
+        };
         torrent = tracker::get_peers(torrent).await;
 
         Ok(torrent)
@@ -32,7 +49,7 @@ impl Torrent {
 
 
     // Function to return Announce Url, name, piece length and hashes from a decoded torrent file
-    fn parse_decoded_helper(decoded: &Element) -> Result<(Option<String>, Option<Vec<String>>, String, u64, Vec<String>, u64), InvalidTorrentFile> {
+    fn parse_decoded_helper(decoded: &Element) -> Result<(Option<String>, Option<Vec<String>>, String, u64, Vec<String>, u64, usize), InvalidTorrentFile> {
 
         let mut announce = None;
         let mut announce_list = None;
@@ -40,6 +57,7 @@ impl Torrent {
         let mut piece_length = 0;
         let hashes = Vec::new();
         let mut length: i64 = 0;
+        let mut piece_no: usize = 0;
 
         match decoded {
             Element::Dict(mp) => {
@@ -97,19 +115,7 @@ impl Torrent {
 
                             // Piece Hashes
                             if let Element::ByteString(s) = &info_mp["pieces"] {
-                                let mut buf = Vec::new();
-                                for i in s.as_bytes() {
-                                    
-                                    buf.push(i.clone());
-                                    // if buf.len() == 20 {
-                                    //     let mut hasher = Sha1::new();
-                                    //     hasher.update(buf.as_mut());
-                                    //     hashes.push(hasher.digest().to_string());
-                                    //     buf.clear();
-                                    // }
-                                }
-                                // println!("{:?}",buf);
-
+                                piece_no = s.chars().count()/20;
                             }
 
                         }
@@ -122,7 +128,7 @@ impl Torrent {
             _ => { return Err(InvalidTorrentFile{case: 5}); }
             
         }
-        Ok((announce,announce_list,name,piece_length as u64, hashes, length.abs() as u64))
+        Ok((announce,announce_list,name,piece_length as u64, hashes, length.abs() as u64, piece_no))
     }
 }
 

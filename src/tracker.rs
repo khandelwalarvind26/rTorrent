@@ -5,6 +5,8 @@ use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 use url::{Url, Host};
 use super::torrent_parser::Torrent;
 
+
+
 struct Request {
     connection_id: u64,
     action: u32,
