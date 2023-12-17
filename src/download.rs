@@ -272,7 +272,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 if to_req != None {
                     (*freq_arr)[to_req.unwrap()].1[begin.unwrap()] = true;
                 }
-                else {continue;}
+                else {return;}
             }
 
             if to_req != None {
@@ -295,7 +295,20 @@ async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
     let mut ret = Vec::new();
     while ret.len() < len as usize {
         let mut buf = [0];
-        timeout(tokio::time::Duration::from_secs(10),stream.read_exact(&mut buf)).await.unwrap().unwrap();
+        let res = timeout(tokio::time::Duration::from_secs(20),stream.read_exact(&mut buf)).await;
+        match res {
+            Ok(resp) => {
+                match resp {
+                    Ok(_bytes_read) => {},
+                    Err(err) => {
+                        println!("Error: {err}");
+                    }
+                }
+            },
+            Err(_err) => {
+                println!("Waiting for message timed out");
+            }
+        }
         ret.push(buf[0]);
     }
     ret
