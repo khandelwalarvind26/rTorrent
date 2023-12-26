@@ -220,20 +220,52 @@ mod udp_tracker {
 
 mod http_tracker {
 
-    use std::str;
-    use crate:: helpers::{u8_to_url, u8_to_bin};
-    use url::form_urlencoded;
+    use byteorder::{BigEndian, ReadBytesExt};
 
-    pub async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32 ) -> Option<Vec<(u32,u16)>> {
+    // use std::str;
+    use crate::{
+        helpers::u8_to_url,
+        bencoded_parser::Bencode
+    };
+
+    fn url_parser(info_hash: [u8; 20], peer_id:[u8;20], announce_url: String, port: u32, uploaded: u64, downloaded: u64, left: u64, compact: bool, event: &str, numwant: Option<u64>) -> String {
+        let mut ret = announce_url + "?" +
+            "info_hash=" + &u8_to_url(info_hash.to_owned()) + 
+            "&peer_id=" + &u8_to_url(peer_id.to_owned()) + 
+            "&port=" + &port.to_string() +
+            "&uploaded=" + &uploaded.to_string() +
+            "&downloaded=" + &downloaded.to_string() +
+            "&left=" + &left.to_string() +
+            "&compact=" + if compact {"1"} else {"0"} +
+            "&event=" + event;
+        if numwant != None {
+            ret.push_str(&("&numwant=".to_owned()+&numwant.unwrap().to_string()));
+        }
+        ret
+    }
+
+    pub async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32 ) -> Vec<(u32,u16)> {
         
-        let encoded = form_urlencoded::Serializer::new(String::new())
-                    .append_pair("info_hash", &u8_to_url(info_hash.to_owned()))
-                    .append_pair("peer_id", &u8_to_url(peer_id.to_owned()))
-                    .append_pair("port", &port.to_string())
-                    .finish();
-        
-        dbg!(str::from_utf8(info_hash).unwrap());
-        None
+        let request = url_parser(info_hash.to_owned(), peer_id.to_owned(), announce_url, port, 0, 0, length.to_owned(), true, "started", Some(50));
+
+        let res = reqwest::get(request)
+                        .await
+                        .unwrap()
+                        .bytes()
+                        .await
+                        .unwrap()
+                        .to_vec();
+
+        let (_, peers) = Bencode::decode_u8(res).unwrap();
+        let mut ret = Vec::new();
+
+        for i in (0..peers.len()).step_by(6) {
+            let ip = (&(peers.as_slice())[i..(i+4)]).read_u32::<BigEndian>().unwrap();
+            let po = (&(peers.as_slice())[(i+4)..(i+6)]).read_u16::<BigEndian>().unwrap();
+            ret.push((ip,po));
+        }
+
+        ret
 
     }
 }
@@ -243,7 +275,7 @@ async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], 
         udp_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port).await
     }
     else {
-        http_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port).await
+        Some(http_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port).await)
     }
 }
 
@@ -254,7 +286,7 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
     torrent.peer_id = helpers::gen_random_id();
 
     // Create udp socket
-    let mut port: u32 = 8080;
+    let mut port: u32 = 6881;
 
     println!();
 
