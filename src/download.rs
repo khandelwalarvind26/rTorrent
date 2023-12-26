@@ -7,8 +7,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-use super::torrent_parser::Torrent;
-use super::message::{HandshakeMsg, Message};
+use crate::{torrent_parser::Torrent, message::{HandshakeMsg, Message}, helpers};
 // Have message -> multiple have messages each have piece index
 // bitfield message -> 01101 have 1,2,4 pieces
 
@@ -198,7 +197,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 //bitfield
                 let mut freq_arr = freq_ref.lock().await;
                 for i in 1..len {
-                    for (j, val) in u8_to_bin(msg[i as usize]).iter().enumerate() {
+                    for (j, val) in helpers::u8_to_bin(msg[i as usize]).iter().enumerate() {
 
                         let ind = (i as usize -1)*8 + j;
                         if ind >= bitfield.len() {
@@ -315,23 +314,7 @@ async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
 
 }
 
-fn u8_to_bin(n: u8) -> Vec<bool> {
-    let mut s = Vec::new();
-    for i in (0..8).rev() {
-        s.push(n&(1<<i) == 1<<i)
-    }
-    s
-}
 
 
-#[cfg(test)]
-mod tests {
-    use crate::download::u8_to_bin;
 
-    #[test]
-    fn u8_to_bin_test() {
-        assert_eq!(vec![true, true, true, true, true, true, true, true], u8_to_bin(255));
-        assert_eq!(vec![false, false, false, false, true, false, false, false], u8_to_bin(8));
-        assert_eq!(vec![false, false, false, false, true, false, true, true], u8_to_bin(11));
-    }
-}
+

@@ -1,2 +1,5 @@
 /target
 /torrents
+*.lock
+local
+local.pub

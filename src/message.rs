@@ -1,6 +1,4 @@
 use byteorder::{WriteBytesExt, BigEndian};
-// use super::tracker::gen_random_id;
-// use crate::torrent_parser::Torrent;
 
 #[allow(dead_code)]
 pub enum Message {
@@ -159,7 +157,7 @@ impl HandshakeMsg {
 
 #[cfg(test)]
 mod tests {
-    use crate::tracker::gen_random_id;
+    use crate::helpers::gen_random_id;
 
     use super::HandshakeMsg;
 

@@ -37,17 +37,20 @@ pub struct Bencode{
     buf: Vec<u8>,
     ind: usize,
     curr: char,
-    info_ind: (i32,i32)
+    info_ind: (i32,i32),
+    peers_ind: (i32, i32)
 }
 
 impl Bencode {
 
     fn new(buf: Vec<u8>) -> Bencode {
 
-        Bencode { buf, ind: 0, curr: '\0', info_ind: (-1,-1) }
+        Bencode { buf, ind: 0, curr: '\0', info_ind: (-1,-1), peers_ind: (-1,-1)}
 
     }
 
+    ///Decode Bencoded file
+    ///Accepts file that is in bencoded format and returns entire bencoded dictionary in element along with hash
     pub fn decode(f: &mut File) -> Result<(Element, [u8;20])> {
 
         // Create a buff reader and read the entire .torrent file into buf as bytes
@@ -57,6 +60,15 @@ impl Bencode {
         // Create a new instance of Bencode and start parsing
         let mut instance = Bencode::new(buf);
         Ok(( instance.call_element().unwrap() , instance.calculate_hash() ))
+
+    }
+
+    ///Decode bencoded [u8]
+    ///Accepts bencoded [u8] and return bencoded dictionary
+    pub fn decode_u8(buf: Vec<u8>) -> Result<(Element, Vec<u8>)> {
+        
+        let mut instance = Bencode::new(buf);
+        Ok((instance.call_element().unwrap(), instance.read_peers()))
 
     }
 
@@ -75,6 +87,24 @@ impl Bencode {
         hasher.update(&info_string);
         hasher.digest().bytes()
 
+    }
+
+    fn read_peers(&mut self) -> Vec<u8> {
+        
+        // Create info string
+        let mut peers = Vec::new();
+
+        while self.buf[self.peers_ind.0 as usize] != ':' as u8 {
+            self.peers_ind.0 += 1;
+        }
+
+        self.peers_ind.0 += 1;
+
+        for ind in self.peers_ind.0..self.peers_ind.1 {
+            peers.push(self.buf[ind as usize]);
+        }
+
+        peers
     }
 
     pub fn encode(decoded: &Element) -> String {
@@ -154,6 +184,14 @@ impl Bencode {
 
                     self.info_ind.1 = self.ind as i32;
 
+                }
+                else if key == "peers" {
+                    self.peers_ind.0 = self.ind as i32;
+
+                    let value = self.call_element()?;
+                    mp.insert(key, value);
+
+                    self.peers_ind.1 = self.ind as i32;
                 }
                 else {
 
