@@ -1,10 +1,14 @@
-use super::bencoded_parser::Element;
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    {fmt,fs::File}
+};
 use tokio::sync::Mutex;
-use std::{fmt,fs::File};
-use super::bencoded_parser::Bencode;
-use super::tracker;
+use crate:: {
+    bencoded_parser::{Bencode, Element},
+    tracker,
+    helpers
+};
 
 static BLOCK_SIZE: u64 = 16384; //2^14
 
@@ -37,7 +41,8 @@ impl Torrent {
             length, 
             info_hash, 
             piece_length, 
-            peer_list: HashSet::new(), peer_id: [0; 20], 
+            peer_list: HashSet::new(), 
+            peer_id: helpers::gen_random_id(), 
             piece_freq: Arc::new(Mutex::new(vec![(0,vec![false; no_blocks as usize]); piece_no])),
             no_blocks
         };
