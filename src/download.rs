@@ -44,8 +44,6 @@ pub async fn download_file(torrent: Torrent, file: File) {
 
 }
 
-
-
 async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Option<TcpStream> {
 
     let socket = SocketAddrV4::new(Ipv4Addr::from(peer.0),peer.1);
@@ -73,7 +71,6 @@ async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Opt
     }
 
 }
-
 
 async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20]) -> Option<TcpStream> {
 
@@ -124,7 +121,6 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
     }
 
 }
-
 
 async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>>, file_ref: Arc<Mutex<File>>, no_blocks: u64) {
 
@@ -177,7 +173,10 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 choke = false;
             },
             Some(2) => {
+
                 // Interested
+                stream.write_all(&Message::build_unchoke()).await.unwrap();
+
             },
             Some(3) => {
                 // not-interested
@@ -211,7 +210,11 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
 
             },
             Some(6) => {
+
                 // request
+                let req = Message::read_request(&msg);
+                println!("{:?}",req);
+
             },
             Some(7) => {
 

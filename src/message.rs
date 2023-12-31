@@ -1,6 +1,7 @@
-use byteorder::{WriteBytesExt, BigEndian};
+use byteorder::{WriteBytesExt, BigEndian, ReadBytesExt};
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub enum Message {
     KeepAlive {
         length: u32
@@ -65,12 +66,18 @@ impl Message {
         Message::KeepAlive { length: 0 }
     }
 
-    fn build_choke() -> Message {
-        Message::Choke { length: 1, id: 0 }
+    fn build_choke() -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.write_u32::<BigEndian>(1).unwrap();
+        buf.write_u8(0).unwrap();
+        buf
     }
 
-    fn build_unchoke() -> Message {
-        Message::Unchoke { length: 1, id: 1 }
+    pub fn build_unchoke() -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.write_u32::<BigEndian>(1).unwrap();
+        buf.write_u8(1).unwrap();
+        buf
     }
 
     fn build_interested() -> Message {
@@ -97,6 +104,16 @@ impl Message {
         buf.write_u32::<BigEndian>(begin).unwrap();
         buf.write_u32::<BigEndian>(req_length).unwrap();
         buf
+    }
+
+    pub fn read_request(mut msg: &[u8]) -> Message {
+        Message::Request { 
+            length: 13, 
+            id: msg.read_u8().unwrap(), 
+            index: msg.read_u32::<BigEndian>().unwrap(),
+            begin: msg.read_u32::<BigEndian>().unwrap(), 
+            req_length: msg.read_u32::<BigEndian>().unwrap() 
+        }
     }
 
     fn build_piece(index: u32, begin: u32, block: Vec<u8>) -> Message {
