@@ -9,11 +9,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-use crate::{torrent_parser::Torrent, message::{HandshakeMsg, Message}, helpers};
-// Have message -> multiple have messages each have piece index
-// bitfield message -> 01101 have 1,2,4 pieces
-
-static BLOCK_SIZE: u32 = 16384;
+use crate::{torrent_parser::Torrent, message::{HandshakeMsg, Message}, helpers::{self, BLOCK_SIZE}};
 
 pub async fn download_file(torrent: Torrent, file: File) {    
 
