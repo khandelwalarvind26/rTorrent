@@ -1,6 +1,9 @@
 use std::fmt;
-use std::{fs::File, collections::HashMap};
-use std::io::prelude::*;
+use std::{
+    fs::File, 
+    collections::HashMap,
+    io::prelude::*
+};
 use sha1_smol::Sha1;
 
 // Error type if invalid character found

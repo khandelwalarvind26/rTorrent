@@ -120,7 +120,6 @@ pub struct HandshakeMsg {
     peer_id: [u8; 20]
 }
 
-
 impl HandshakeMsg {
 
     pub fn build_msg( info_hash: [u8; 20], peer_id: [u8;20]) -> Vec<u8> {
@@ -153,7 +152,6 @@ impl HandshakeMsg {
         buf
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -1,13 +1,23 @@
-use std::fs::File;
-use std::net::{Ipv4Addr, SocketAddrV4};
-use std::os::unix::fs::FileExt;
-use std::sync::Arc;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use std::{
+    fs::File,
+    net::{Ipv4Addr, SocketAddrV4},
+    os::unix::fs::FileExt,
+    sync::Arc,
+    io::{Write, stdout}
+};
+use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
+use tokio::{
+    io::{AsyncWriteExt, AsyncReadExt},
+    net::TcpStream,
+    sync::Mutex,
+    time::timeout
+};
 use byteorder::{BigEndian, ReadBytesExt};
-use tokio::net::TcpStream;
-use tokio::sync::Mutex;
-use tokio::time::timeout;
-use crate::{torrent_parser::Torrent, message::{HandshakeMsg, Message}, helpers::{self, BLOCK_SIZE}};
+use crate::{
+    torrent_parser::Torrent, 
+    message::{HandshakeMsg, Message}, 
+    helpers::{self, BLOCK_SIZE}
+};
 
 pub async fn download_file(torrent: Torrent, file: File) {    
 
@@ -15,15 +25,22 @@ pub async fn download_file(torrent: Torrent, file: File) {
     let file_ref = Arc::new(Mutex::new(file));
     let no_blocks = torrent.no_blocks;
 
-    for peer in torrent.peer_list {
+    loop {
+        if *(torrent.downloaded.lock().await) == torrent.length {
+            break;
+        }
+        while torrent.peer_list.lock().await.is_empty() {}
+        let mut q = torrent.peer_list.lock().await;
+        let peer = (*q).pop_front().unwrap();
 
         let freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>> = Arc::clone(&torrent.piece_freq);
         let file_ref = Arc::clone(&file_ref);
+        let down_ref = Arc::clone(&torrent.downloaded);
 
         let h = tokio::spawn( async move{
             let stream = connect(peer, torrent.info_hash, torrent.peer_id).await;
             if let Some(stream) = stream {
-                handle_connection(stream, freq_ref, file_ref, no_blocks).await;
+                handle_connection(stream, freq_ref, file_ref, no_blocks, down_ref).await;
             }
             else {
                 return;
@@ -45,7 +62,7 @@ pub async fn download_file(torrent: Torrent, file: File) {
 async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Option<TcpStream> {
 
     let socket = SocketAddrV4::new(Ipv4Addr::from(peer.0),peer.1);
-    println!("Connecting to {socket}");
+    // dbg!("Connecting to ",socket);
     let res = timeout(tokio::time::Duration::from_secs(2),TcpStream::connect(socket)).await;
     match res {
 
@@ -53,11 +70,11 @@ async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Opt
             
             match socket {
                 Ok(stream) => {
-                    println!("Connected");
+                    // dbg!("Connected");
                     handshake(stream, info_hash, peer_id).await
                 },
-                Err(e) => {
-                    println!("{e}");
+                Err(_) => {
+                    // dbg!(e);
                     None
                 }
             }
@@ -99,21 +116,21 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
                         Some(stream)
                     }
                     else {
-                        println!("Terminating: Response not handshake");
+                        // dbg!("Terminating: Response not handshake");
                         None
         
                     }
                 },
 
-                Err(err) => {
-                    println!("Error: {err}");
+                Err(_) => {
+                    // dbg!(err);
                     None
                 }
             }
 
         },
         _ => {
-            println!("Handshake response timed out");
+            // dbg!("Handshake response timed out");
             None
         }
 
@@ -122,7 +139,7 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 }
 
 
-async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>>, file_ref: Arc<Mutex<File>>, no_blocks: u64) {
+async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>>, file_ref: Arc<Mutex<File>>, no_blocks: u64, down_ref: Arc<Mutex<u64>>) {
 
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
@@ -137,14 +154,14 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
             Ok(resp) => {
                 match resp {
                     Ok(_bytes_read) => {},
-                    Err(err) => {
-                        println!("Error: {err}");
+                    Err(_) => {
+                        // dbg!(err);
                         return;
                     }
                 }
             },
             Err(_err) => {
-                println!("Terminating: Waiting for server response timed out");
+                // dbg!("Terminating: Waiting for server response timed out");
                 return;
             }
         }
@@ -212,16 +229,19 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
             Some(7) => {
 
                 // piece
-                let file = file_ref.lock().await;
                 let buf = &mut msg.as_mut_slice()[1..].as_ref();
                 let index = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
                 let begin = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
                 let offset = ((index as u64)*no_blocks + begin as u64)*(BLOCK_SIZE as u64);
-                // println!("Recieved {index}, {begin}");
 
+                
+                let file = file_ref.lock().await;
                 for i in 9..msg.len() {
                     file.write_at([msg[i]].as_mut(), offset).unwrap();
                 }
+
+                let mut donwloaded = down_ref.lock().await;
+                *donwloaded += (msg.len() - 9) as u64;
 
                 requested = None;
 
@@ -233,7 +253,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 // port
             },
             _ => {
-                println!("Invalid {:?} response",id);
+                // dbg!("Invalid response ", id);
                 return;
             }
         }
@@ -295,13 +315,13 @@ async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
             Ok(resp) => {
                 match resp {
                     Ok(_bytes_read) => {},
-                    Err(err) => {
-                        println!("Error: {err}");
+                    Err(_) => {
+                        // dbg!(err);
                     }
                 }
             },
             Err(_err) => {
-                println!("Waiting for message timed out");
+                // dbg!("Waiting for message timed out");
             }
         }
         ret.push(buf[0]);
@@ -310,7 +330,25 @@ async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
 
 }
 
+pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64) {
 
+    let mut stdout = stdout();
 
+    stdout.execute(cursor::Hide).unwrap();
+    loop {
+        let now = *(downloaded.lock().await);
+        if now == length {
+            break;
+        }
+        stdout.queue(cursor::SavePosition).unwrap();
+        stdout.write_all(format!("Downloaded {} bytes", now).as_bytes()).unwrap();
+        stdout.queue(cursor::RestorePosition).unwrap();
+        stdout.flush().unwrap();
 
+        stdout.queue(cursor::RestorePosition).unwrap();
+        stdout.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
+    }
+    stdout.execute(cursor::Show).unwrap();
 
+    println!("Done!");
+}
