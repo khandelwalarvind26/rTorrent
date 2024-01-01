@@ -7,10 +7,8 @@ use tokio::sync::Mutex;
 use crate:: {
     bencoded_parser::{Bencode, Element},
     tracker,
-    helpers
+    helpers::{self, BLOCK_SIZE}
 };
-
-static BLOCK_SIZE: u64 = 16384; //2^14
 
 #[derive(Debug)]
 pub struct Torrent {
@@ -32,7 +30,7 @@ impl Torrent {
 
         let (decoded, info_hash) = Bencode::decode(file).unwrap();
         let (announce_url, announce_list, name, piece_length, _hashes, length, piece_no) = Torrent::parse_decoded_helper(&decoded)?;
-        let no_blocks = piece_length/BLOCK_SIZE;
+        let no_blocks = piece_length/(BLOCK_SIZE as u64);
 
         let mut torrent = Torrent { 
             announce_url, 
