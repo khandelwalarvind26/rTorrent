@@ -1,7 +1,10 @@
-use std::{fs::File,env};
-use torrent_rust::torrent_parser::Torrent;
+use std::{fs::File,env, sync::Arc};
+use torrent_rust::{
+    torrent_parser::Torrent,
+    download,
+    tracker::get_peers
+};
 use tokio;
-use torrent_rust::download;
 
 #[tokio::main]
 async fn main() {
@@ -15,10 +18,31 @@ async fn main() {
     let mut file = File::open(dir).unwrap();
     
     // All info mentioned in torrent file
-    let torrent = Torrent::parse_decoded(&mut file).await.unwrap(); 
-
-    // Download torrent
+    let mut torrent = Torrent::parse_decoded(&mut file).await.unwrap(); 
+    
     let file = File::create("/home/arvind/Downloads/".to_string() + &torrent.name.to_owned()).unwrap();
-    download::download_file(torrent, file).await;
+
+    let (announce_url, announce_list) = (torrent.announce_url, torrent.announce_list);
+    (torrent.announce_url, torrent.announce_list) = (None, None);
+
+    // Get peers
+    let h1 = get_peers(
+        torrent.info_hash.clone(),
+        torrent.length.clone(),
+        torrent.peer_id.clone(),
+        announce_url,
+        Arc::clone(&torrent.peer_list),
+        announce_list
+    );
+
+    let h3 = download::download_print(Arc::clone(&torrent.downloaded), torrent.length.clone());
+    
+    // Download torrent
+    let h2 = download::download_file(torrent, file);
+    
+
+    tokio::join!(h1, h2, h3);
+
+
 
 }

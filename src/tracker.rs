@@ -1,6 +1,5 @@
-use std::{sync::Arc, collections::HashSet};
+use std::{sync::Arc, collections::VecDeque};
 use tokio::sync::Mutex;
-use crate::torrent_parser::Torrent;
 
 mod udp_tracker {
 
@@ -153,7 +152,7 @@ mod udp_tracker {
         let socket = UdpSocket::bind("0.0.0.0:".to_string() + &port.to_string()).await.unwrap();
 
         if let Ok(()) = socket.connect(&remote_addr).await {
-            println!("Connected to {remote_addr}");
+            // println!("Connected to {remote_addr}");
         }
         else {
             return None;
@@ -198,7 +197,7 @@ mod udp_tracker {
         for t in 0..8 {
             // Make announce request
             socket.send(&announce_req).await.unwrap();
-            println!("Announce request sent {t}th time");
+            // println!("Announce request sent {t}th time");
 
             // Recieve Announce Response
             // println!("Waiting for Response");
@@ -270,7 +269,7 @@ mod http_tracker {
     }
 }
 
-async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32, tor_ref: Arc<Mutex<HashSet<(u32,u16)>>> ) {
+async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32, tor_ref: Arc<Mutex<VecDeque<(u32,u16)>>> ) {
 
     let res;
     if announce_url[0..=5].as_bytes() == "udp://".as_bytes() {
@@ -284,27 +283,23 @@ async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], 
 
         let mut tor = tor_ref.lock().await;
         for peer in peers {
-            (*tor).insert(peer);
+            (*tor).push_back(peer);
         }
 
     }
 }
 
 // Function to get peer list
-pub async fn get_peers(mut torrent: Torrent) -> Torrent {
+pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], announce_url: Option<String>, peer_list: Arc<Mutex<VecDeque<(u32, u16)>>>, announce_list: Option<Vec<String>>) {
 
     // Create udp socket
     let mut port: u32 = 6881;
-
-    let (info_hash, length, peer_id) = (torrent.info_hash, torrent.length, torrent.peer_id);
-    let st = HashSet::new();
-    let tor_ref = Arc::new(Mutex::new(st));
     let mut handles = vec![];
 
     // Check for announce_url and announce_list
-    if let Some(announce_url) = torrent.announce_url.clone() {
+    if let Some(announce_url) = announce_url.clone() {
         
-        let tor_ref = Arc::clone(&tor_ref);
+        let tor_ref: Arc<Mutex<VecDeque<(u32, u16)>>> = Arc::clone(&peer_list);
 
         let h = tokio::spawn(async move{
             peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref).await;
@@ -315,11 +310,11 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
         
     }
 
-    if let Some(announce_list) = torrent.announce_list.clone() {
+    if let Some(announce_list) = announce_list.clone() {
 
         for announce_url in announce_list {
             
-            let tor_ref = Arc::clone(&tor_ref);
+            let tor_ref = Arc::clone(&peer_list);
 
             let h = tokio::spawn(async move{
                 peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref).await;
@@ -336,8 +331,6 @@ pub async fn get_peers(mut torrent: Torrent) -> Torrent {
         handle.await.unwrap();
     }
 
-    torrent.peer_list = tor_ref.lock().await.clone();
-    torrent    
 }
 
 
