@@ -1,15 +1,23 @@
-use std::fs::File;
-use std::net::{Ipv4Addr, SocketAddrV4};
-use std::os::unix::fs::FileExt;
-use std::sync::Arc;
-use std::io::{Write, stdout};
+use std::{
+    fs::File,
+    net::{Ipv4Addr, SocketAddrV4},
+    os::unix::fs::FileExt,
+    sync::Arc,
+    io::{Write, stdout}
+};
 use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::{
+    io::{AsyncWriteExt, AsyncReadExt},
+    net::TcpStream,
+    sync::Mutex,
+    time::timeout
+};
 use byteorder::{BigEndian, ReadBytesExt};
-use tokio::net::TcpStream;
-use tokio::sync::Mutex;
-use tokio::time::timeout;
-use crate::{torrent_parser::Torrent, message::{HandshakeMsg, Message}, helpers::{self, BLOCK_SIZE}};
+use crate::{
+    torrent_parser::Torrent, 
+    message::{HandshakeMsg, Message}, 
+    helpers::{self, BLOCK_SIZE}
+};
 
 pub async fn download_file(torrent: Torrent, file: File) {    
 

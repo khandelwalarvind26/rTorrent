@@ -6,7 +6,6 @@ use std::{
 use tokio::sync::Mutex;
 use crate:: {
     bencoded_parser::{Bencode, Element},
-    tracker,
     helpers::{self, BLOCK_SIZE}
 };
 
