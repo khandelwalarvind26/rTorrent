@@ -1,5 +1,5 @@
 use std::{fs::File,env, sync::Arc};
-use torrent_rust::{
+use r_torrent::{
     torrent_parser::Torrent,
     download,
     tracker::get_peers

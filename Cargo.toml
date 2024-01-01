@@ -1,5 +1,5 @@
 [package]
-name = "torrent_rust"
+name = "r_torrent"
 version = "0.1.0"
 edition = "2021"
 
