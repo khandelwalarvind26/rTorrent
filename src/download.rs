@@ -16,7 +16,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use crate::{
     torrent_parser::Torrent, 
     message::{HandshakeMsg, Message}, 
-    helpers::{self, BLOCK_SIZE}
+    helpers::{self, BLOCK_SIZE, CONN_LIMIT}
 };
 
 pub async fn download_file(torrent: Torrent, file: File) {    
@@ -24,20 +24,19 @@ pub async fn download_file(torrent: Torrent, file: File) {
     let mut handles = vec![];
     let file_ref = Arc::new(Mutex::new(file));
     let no_blocks = torrent.no_blocks;
-    let connections = Arc::new(Mutex::new(0));
 
     loop {
         if *(torrent.downloaded.lock().await) == torrent.length {
             break;
         }
-        while *(connections.lock().await) >= helpers::CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
+        while *(torrent.connections.lock().await) >= helpers::CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
         let mut q = torrent.peer_list.lock().await;
         let peer = (*q).pop_front().unwrap();
 
         let freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>> = Arc::clone(&torrent.piece_freq);
         let file_ref = Arc::clone(&file_ref);
         let down_ref = Arc::clone(&torrent.downloaded);
-        let conn_ref = Arc::clone(&connections);
+        let conn_ref = Arc::clone(&torrent.connections);
 
         let h = tokio::spawn( async move{
             let stream = connect(peer, torrent.info_hash, torrent.peer_id).await;
@@ -340,7 +339,7 @@ async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
 
 }
 
-pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64) {
+pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<u32>>) {
 
     let mut stdout = stdout();
 
@@ -350,15 +349,16 @@ pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64) {
 
     loop {
         let now = *(downloaded.lock().await);
+        let connections = *(connections.lock().await);
         if now == length {
             break;
         }
         let tot = (now as f64) / (1048756 as f64);
         let speed = ((now - last) as f64) / (1048756 as f64);
         
-        stdout.write_all(format!("\rDownloaded: {:.2} MB\nSpeed: {:.2} MB/s", tot, speed).as_bytes()).unwrap();
+        stdout.write_all(format!("\rDownloaded: {:.2} MB\nSpeed: {:.2} MB/s\nConnections: {}/{}", tot, speed, connections, CONN_LIMIT).as_bytes()).unwrap();
         
-        stdout.execute(cursor::MoveUp(0)).unwrap();
+        stdout.execute(cursor::MoveUp(2)).unwrap();
         stdout.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
         last = now;
         sleep(time::Duration::from_millis(1000)).await;
