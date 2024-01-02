@@ -16,7 +16,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use crate::{
     torrent_parser::Torrent, 
     message::{HandshakeMsg, Message}, 
-    helpers::{self, BLOCK_SIZE, CONN_LIMIT}
+    helpers::{self, BLOCK_SIZE, CONN_LIMIT, on_whole_msg}
 };
 
 pub async fn download_file(torrent: Torrent, file: File) {    
@@ -66,8 +66,6 @@ pub async fn download_file(torrent: Torrent, file: File) {
 
 }
 
-
-
 async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Option<TcpStream> {
 
     let socket = SocketAddrV4::new(Ipv4Addr::from(peer.0),peer.1);
@@ -95,7 +93,6 @@ async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Opt
     }
 
 }
-
 
 async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20]) -> Option<TcpStream> {
 
@@ -146,7 +143,6 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
     }
 
 }
-
 
 async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>>, file_ref: Arc<Mutex<File>>, no_blocks: u64, down_ref: Arc<Mutex<u64>>) {
 
@@ -310,32 +306,6 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
         }
 
     }
-
-}
-
-
-async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
-
-    let mut ret = Vec::new();
-    while ret.len() < len as usize {
-        let mut buf = [0];
-        let res = timeout(tokio::time::Duration::from_secs(20),stream.read_exact(&mut buf)).await;
-        match res {
-            Ok(resp) => {
-                match resp {
-                    Ok(_bytes_read) => {},
-                    Err(_) => {
-                        // dbg!(err);
-                    }
-                }
-            },
-            Err(_err) => {
-                // dbg!("Waiting for message timed out");
-            }
-        }
-        ret.push(buf[0]);
-    }
-    ret
 
 }
 
