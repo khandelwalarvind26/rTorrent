@@ -42,7 +42,14 @@ impl Torrent {
             piece_length, 
             peer_list: Arc::new(Mutex::new(VecDeque::new())), 
             peer_id: helpers::gen_random_id(), 
-            piece_freq: Arc::new(Mutex::new(vec![(0,vec![false; no_blocks as usize]); piece_no])),
+            piece_freq: Arc::new(Mutex::new(
+                vec![
+                    (0,vec![
+                        false; no_blocks as usize
+                        ]); 
+                    piece_no
+                ]
+            )),
             no_blocks,
             downloaded: Arc::new(Mutex::new(0)),
             connections: Arc::new(Mutex::new(0))
@@ -54,13 +61,13 @@ impl Torrent {
 
 
     // Function to return Announce Url, name, piece length and hashes from a decoded torrent file
-    fn parse_decoded_helper(decoded: &Element) -> Result<(Option<String>, Option<Vec<String>>, String, u64, Vec<String>, u64, usize), InvalidTorrentFile> {
+    fn parse_decoded_helper(decoded: &Element) -> Result<(Option<String>, Option<Vec<String>>, String, u64, Vec<Vec<u8>>, u64, usize), InvalidTorrentFile> {
 
         let mut announce = None;
         let mut announce_list = None;
         let mut name = String::new();
         let mut piece_length = 0;
-        let hashes = Vec::new();
+        let mut hashes = Vec::new();
         let mut length: i64 = 0;
         let mut piece_no: usize = 0;
 
@@ -68,13 +75,13 @@ impl Torrent {
             Element::Dict(mp) => {
 
                 // Get List of announce urls
-                if mp.contains_key("announce-list") {
+                if mp.contains_key("announce-list".as_bytes()) {
                     let mut tmp = Vec::new();
-                    if let Element::List(l) = &mp["announce-list"] {
+                    if let Element::List(l) = &mp["announce-list".as_bytes()] {
                         for i in l {
                             if let Element::List(l1) = i {
                                 if let Element::ByteString(s) = &l1[0] {
-                                    tmp.push(s.clone());
+                                    tmp.push(String::from_utf8(s.to_owned()).unwrap());
                                 }
                             } 
                         }
@@ -83,34 +90,34 @@ impl Torrent {
                 }
                 else { 
                     // Get Announce url of torrent file
-                    if mp.contains_key("announce") {
-                        if let Element::ByteString(s) = &mp["announce"] { announce = Some(s.clone()); } 
+                    if mp.contains_key("announce".as_bytes()) {
+                        if let Element::ByteString(s) = &mp["announce".as_bytes()] { announce = Some(String::from_utf8(s.to_owned()).unwrap()); } 
                         else { return Err(InvalidTorrentFile{case: 0}); }
                     } 
                     else { return Err(InvalidTorrentFile{case: 1}); }
                 }
 
                 // Get info of torrent file
-                if mp.contains_key("info") {
+                if mp.contains_key("info".as_bytes()) {
 
-                    match &mp["info"] {
+                    match &mp["info".as_bytes()] {
                         Element::Dict(info_mp) => {
-                            if !info_mp.contains_key("name") || !info_mp.contains_key("piece length") || !info_mp.contains_key("pieces") || (!info_mp.contains_key("length") && !info_mp.contains_key("files")) { return Err(InvalidTorrentFile{case: 6}); }
+                            if !info_mp.contains_key("name".as_bytes()) || !info_mp.contains_key("piece length".as_bytes()) || !info_mp.contains_key("pieces".as_bytes()) || (!info_mp.contains_key("length".as_bytes()) && !info_mp.contains_key("files".as_bytes())) { return Err(InvalidTorrentFile{case: 6}); }
 
-                            if let Element::ByteString(s) = &info_mp["name"] { name += s; }
-                            if let Element::Integer(l) = &info_mp["piece length"] { piece_length += l; }
+                            if let Element::ByteString(s) = &info_mp["name".as_bytes()] { name += &String::from_utf8_lossy(s); }
+                            if let Element::Integer(l) = &info_mp["piece length".as_bytes()] { piece_length += l; }
 
                             // Length for single file
-                            if info_mp.contains_key("length") {
-                                if let Element::Integer(l) = &info_mp["length"] { length += l; }
+                            if info_mp.contains_key("length".as_bytes()) {
+                                if let Element::Integer(l) = &info_mp["length".as_bytes()] { length += l; }
                             }
 
                             // Length for multiple files
-                            if info_mp.contains_key("files") {
-                                if let Element::List(files) = &info_mp["files"] {
+                            if info_mp.contains_key("files".as_bytes()) {
+                                if let Element::List(files) = &info_mp["files".as_bytes()] {
                                     for file in files {
                                         if let Element::Dict(file_mp) = file {
-                                            if let Element::Integer(l) = file_mp["length"] {
+                                            if let Element::Integer(l) = file_mp["length".as_bytes()] {
                                                 length += l;
                                             }
                                         }
@@ -119,8 +126,14 @@ impl Torrent {
                             }
 
                             // Piece Hashes
-                            if let Element::ByteString(s) = &info_mp["pieces"] {
-                                piece_no = s.chars().count()/20;
+                            if let Element::ByteString(s) = &info_mp["pieces".as_bytes()] {
+                                piece_no = s.len()/20;
+
+                                for i in (0..s.len()).step_by(20) {
+                                    let tmp = s[i..(i+20)].to_vec();
+                                    hashes.push(tmp);
+                                }
+
                             }
 
                         }
@@ -135,6 +148,7 @@ impl Torrent {
         }
         Ok((announce,announce_list,name,piece_length as u64, hashes, length.abs() as u64, piece_no))
     }
+
 }
 
 #[derive(Debug)]
