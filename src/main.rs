@@ -35,7 +35,7 @@ async fn main() {
         announce_list
     );
 
-    let h2 = download::download_print(Arc::clone(&torrent.downloaded), torrent.length.clone());
+    let h2 = download::download_print(Arc::clone(&torrent.downloaded), torrent.length.clone(), Arc::clone(&torrent.connections));
     
     // Download torrent
     let h3 = download::download_file(torrent, file);
