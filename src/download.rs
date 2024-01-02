@@ -3,7 +3,7 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
     os::unix::fs::FileExt,
     sync::Arc,
-    io::{Write, stdout}
+    io::{Write, stdout}, collections::HashSet
 };
 use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
 use tokio::{
@@ -29,7 +29,8 @@ pub async fn download_file(torrent: Torrent, file: File) {
         if *(torrent.downloaded.lock().await) == torrent.length {
             break;
         }
-        while *(torrent.connections.lock().await) >= CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
+
+        while (*(torrent.connections.lock().await)).len() as u32 >= CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
         let mut q = torrent.peer_list.lock().await;
         let peer = (*q).pop_front().unwrap();
 
@@ -38,17 +39,22 @@ pub async fn download_file(torrent: Torrent, file: File) {
         let down_ref = Arc::clone(&torrent.downloaded);
         let conn_ref = Arc::clone(&torrent.connections);
 
+        if (*(conn_ref.lock().await)).contains(&peer) {
+            continue;
+        }
+
         let h = tokio::spawn( async move{
+
             let stream = connect(peer, torrent.info_hash, torrent.peer_id).await;
             if let Some(stream) = stream {
                 {
                     let mut connections = conn_ref.lock().await;
-                    *connections += 1;
+                    (*connections).insert(peer);
                 }
                 handle_connection(stream, freq_ref, file_ref, no_blocks, down_ref).await;
                 {
                     let mut connections = conn_ref.lock().await;
-                    *connections -= 1;
+                    (*connections).remove(&peer);
                 }
             }
             else {
@@ -309,7 +315,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
 
 }
 
-pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<u32>>) {
+pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<HashSet<(u32,u16)>>>) {
 
     let mut stdout = stdout();
 
@@ -319,7 +325,7 @@ pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connection
 
     loop {
         let now = *(downloaded.lock().await);
-        let connections = *(connections.lock().await);
+        let connections = (*(connections.lock().await)).len();
         if now == length {
             break;
         }

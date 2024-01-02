@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{VecDeque, HashSet},
     sync::Arc,
     {fmt,fs::File}
 };
@@ -22,7 +22,7 @@ pub struct Torrent {
     pub piece_freq: Arc<Mutex<Vec<(u16, Vec<bool>)>>>,
     pub no_blocks: u64,
     pub downloaded: Arc<Mutex<u64>>,
-    pub connections: Arc<Mutex<u32>>
+    pub connections: Arc<Mutex<HashSet<(u32,u16)>>>
 }
 
 impl Torrent {
@@ -52,7 +52,7 @@ impl Torrent {
             )),
             no_blocks,
             downloaded: Arc::new(Mutex::new(0)),
-            connections: Arc::new(Mutex::new(0))
+            connections: Arc::new(Mutex::new(HashSet::new()))
         };
 
         Ok(torrent)
