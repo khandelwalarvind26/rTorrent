@@ -220,6 +220,7 @@ mod udp_tracker {
 mod http_tracker {
 
     use byteorder::{BigEndian, ReadBytesExt};
+    use crate::bencoded_parser::Element;
 
     // use std::str;
     use crate::{
@@ -255,8 +256,22 @@ mod http_tracker {
                         .unwrap()
                         .to_vec();
 
-        let (_, peers) = Bencode::decode_u8(res).unwrap();
+        let decoded = Bencode::decode_u8(res).unwrap();
+
         let mut ret = Vec::new();
+        let mut peers = Vec::new();
+
+        match decoded {
+            Element::Dict(d) => {
+                if d.contains_key("peers".as_bytes()) {
+                    match &d["peers".as_bytes()] {
+                        Element::ByteString(s) => { peers = s.to_owned(); }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
 
         for i in (0..peers.len()).step_by(6) {
             let ip = (&(peers.as_slice())[i..(i+4)]).read_u32::<BigEndian>().unwrap();
