@@ -29,7 +29,7 @@ pub async fn download_file(torrent: Torrent, file: File) {
         if *(torrent.downloaded.lock().await) == torrent.length {
             break;
         }
-        while *(torrent.connections.lock().await) >= helpers::CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
+        while *(torrent.connections.lock().await) >= CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
         let mut q = torrent.peer_list.lock().await;
         let peer = (*q).pop_front().unwrap();
 
