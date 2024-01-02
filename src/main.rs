@@ -35,10 +35,10 @@ async fn main() {
         announce_list
     );
 
-    let h3 = download::download_print(Arc::clone(&torrent.downloaded), torrent.length.clone());
+    let h2 = download::download_print(Arc::clone(&torrent.downloaded), torrent.length.clone());
     
     // Download torrent
-    let h2 = download::download_file(torrent, file);
+    let h3 = download::download_file(torrent, file);
     
 
     tokio::join!(h1, h2, h3);
