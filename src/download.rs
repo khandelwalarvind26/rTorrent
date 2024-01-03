@@ -305,8 +305,9 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
 
             if to_req != None {
                 
-                stream.write(&Message::build_request(to_req.unwrap() as u32, begin.unwrap() as u32, BLOCK_SIZE)).await.unwrap();
-                // println!("Requested {}", to_req.unwrap());
+                for i in 0..no_blocks {
+                    stream.write(&Message::build_request(to_req.unwrap() as u32, i as u32, BLOCK_SIZE)).await.unwrap();
+                }
                 requested = to_req;
 
             }
