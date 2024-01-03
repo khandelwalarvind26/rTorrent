@@ -50,7 +50,8 @@ async fn main() {
         torrent.peer_id.clone(),
         announce_url,
         Arc::clone(&torrent.peer_list),
-        announce_list
+        announce_list,
+        torrent.connections.clone()
     );
 
 
