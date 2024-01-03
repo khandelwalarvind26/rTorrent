@@ -246,15 +246,17 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 let offset = ((index as u64)*no_blocks + begin as u64)*(BLOCK_SIZE as u64);
 
                 
-                let file = file_ref.lock().await;
-                for i in 9..msg.len() {
-                    file.write_at([msg[i]].as_mut(), offset).unwrap();
-                }
+                // let file = file_ref.lock().await;
+                // for i in 9..msg.len() {
+                //     file.write_at([msg[i]].as_mut(), offset).unwrap();
+                // }
 
                 let mut donwloaded = down_ref.lock().await;
                 *donwloaded += (msg.len() - 9) as u64;
 
-                requested = None;
+                if begin == (no_blocks - 1) as u32{
+                    requested = None;
+                }
 
             },
             Some(8) => {
