@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{VecDeque, HashSet},
     sync::Arc,
     {fmt,fs::File}
 };
@@ -22,7 +22,7 @@ pub struct Torrent {
     pub piece_freq: Arc<Mutex<Vec<(u16, Vec<bool>)>>>,
     pub no_blocks: u64,
     pub downloaded: Arc<Mutex<u64>>,
-    pub connections: Arc<Mutex<u32>>
+    pub connections: Arc<Mutex<HashSet<(u32,u16)>>>
 }
 
 impl Torrent {
@@ -52,7 +52,7 @@ impl Torrent {
             )),
             no_blocks,
             downloaded: Arc::new(Mutex::new(0)),
-            connections: Arc::new(Mutex::new(0))
+            connections: Arc::new(Mutex::new(HashSet::new()))
         };
 
         Ok(torrent)
@@ -104,8 +104,22 @@ impl Torrent {
                         Element::Dict(info_mp) => {
                             if !info_mp.contains_key("name".as_bytes()) || !info_mp.contains_key("piece length".as_bytes()) || !info_mp.contains_key("pieces".as_bytes()) || (!info_mp.contains_key("length".as_bytes()) && !info_mp.contains_key("files".as_bytes())) { return Err(InvalidTorrentFile{case: 6}); }
 
+                            // Name
                             if let Element::ByteString(s) = &info_mp["name".as_bytes()] { name += &String::from_utf8_lossy(s); }
+                            
+                            // Piece Length
                             if let Element::Integer(l) = &info_mp["piece length".as_bytes()] { piece_length += l; }
+                            
+                            // Piece Hashes
+                            if let Element::ByteString(s) = &info_mp["pieces".as_bytes()] {
+                                piece_no = s.len()/20;
+
+                                for i in (0..s.len()).step_by(20) {
+                                    let tmp = s[i..(i+20)].to_vec();
+                                    hashes.push(tmp);
+                                }
+
+                            }
 
                             // Length for single file
                             if info_mp.contains_key("length".as_bytes()) {
@@ -122,18 +136,7 @@ impl Torrent {
                                             }
                                         }
                                     }
-                                } 
-                            }
-
-                            // Piece Hashes
-                            if let Element::ByteString(s) = &info_mp["pieces".as_bytes()] {
-                                piece_no = s.len()/20;
-
-                                for i in (0..s.len()).step_by(20) {
-                                    let tmp = s[i..(i+20)].to_vec();
-                                    hashes.push(tmp);
                                 }
-
                             }
 
                         }

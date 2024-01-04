@@ -3,7 +3,7 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
     os::unix::fs::FileExt,
     sync::Arc,
-    io::{Write, stdout}
+    io::{Write, stdout}, collections::HashSet
 };
 use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
 use tokio::{
@@ -22,14 +22,15 @@ use crate::{
 pub async fn download_file(torrent: Torrent, file: File) {    
 
     let mut handles = vec![];
-    let file_ref = Arc::new(Mutex::new(file));
+    let file_ref = Arc::new(file);
     let no_blocks = torrent.no_blocks;
 
     loop {
         if *(torrent.downloaded.lock().await) == torrent.length {
             break;
         }
-        while *(torrent.connections.lock().await) >= CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
+
+        while (*(torrent.connections.lock().await)).len() as u32 >= CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
         let mut q = torrent.peer_list.lock().await;
         let peer = (*q).pop_front().unwrap();
 
@@ -38,17 +39,22 @@ pub async fn download_file(torrent: Torrent, file: File) {
         let down_ref = Arc::clone(&torrent.downloaded);
         let conn_ref = Arc::clone(&torrent.connections);
 
+        if (*(conn_ref.lock().await)).contains(&peer) {
+            continue;
+        }
+
         let h = tokio::spawn( async move{
+
             let stream = connect(peer, torrent.info_hash, torrent.peer_id).await;
             if let Some(stream) = stream {
                 {
                     let mut connections = conn_ref.lock().await;
-                    *connections += 1;
+                    (*connections).insert(peer);
                 }
                 handle_connection(stream, freq_ref, file_ref, no_blocks, down_ref).await;
                 {
                     let mut connections = conn_ref.lock().await;
-                    *connections -= 1;
+                    (*connections).remove(&peer);
                 }
             }
             else {
@@ -144,7 +150,7 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 
 }
 
-async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>>, file_ref: Arc<Mutex<File>>, no_blocks: u64, down_ref: Arc<Mutex<u64>>) {
+async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>>, file: Arc<File>, no_blocks: u64, down_ref: Arc<Mutex<u64>>) {
 
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
@@ -239,16 +245,15 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 let begin = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
                 let offset = ((index as u64)*no_blocks + begin as u64)*(BLOCK_SIZE as u64);
 
-                
-                let file = file_ref.lock().await;
-                for i in 9..msg.len() {
-                    file.write_at([msg[i]].as_mut(), offset).unwrap();
-                }
+                // Writing to file at different locations
+                (*file).write_at(&msg[9..], offset).unwrap();
 
                 let mut donwloaded = down_ref.lock().await;
                 *donwloaded += (msg.len() - 9) as u64;
 
-                requested = None;
+                if begin == (no_blocks - 1) as u32{
+                    requested = None;
+                }
 
             },
             Some(8) => {
@@ -265,7 +270,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
 
         if !choke && requested == None {
 
-            let (mut to_req, mut begin) = (None, None);
+            let mut to_req = None;
             {
                 let mut freq_arr = freq_ref.lock().await;
 
@@ -278,7 +283,6 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                             if (*freq_arr)[i].1[j] == false {
 
                                 to_req = Some(i);
-                                begin = Some(j);
                                 mn = (*freq_arr)[i].0;
                                 break;
 
@@ -290,15 +294,19 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 }
 
                 if to_req != None {
-                    (*freq_arr)[to_req.unwrap()].1[begin.unwrap()] = true;
+                    for j in 0..(*freq_arr)[to_req.unwrap()].1.len() {
+                        (*freq_arr)[to_req.unwrap()].1[j] = true;
+                    }
                 }
                 else {return;}
             }
 
             if to_req != None {
                 
-                stream.write(&Message::build_request(to_req.unwrap() as u32, begin.unwrap() as u32, BLOCK_SIZE)).await.unwrap();
-                // println!("Requested {}", to_req.unwrap());
+                for i in 0..no_blocks {
+                    stream.write(&Message::build_request(to_req.unwrap() as u32, i as u32, BLOCK_SIZE)).await.unwrap();
+                }
+                
                 requested = to_req;
 
             }
@@ -309,7 +317,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
 
 }
 
-pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<u32>>) {
+pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<HashSet<(u32,u16)>>>) {
 
     let mut stdout = stdout();
 
@@ -319,7 +327,7 @@ pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connection
 
     loop {
         let now = *(downloaded.lock().await);
-        let connections = *(connections.lock().await);
+        let connections = (*(connections.lock().await)).len();
         if now == length {
             break;
         }

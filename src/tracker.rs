@@ -1,5 +1,6 @@
-use std::{sync::Arc, collections::VecDeque};
+use std::{sync::Arc, collections::{VecDeque, HashSet}};
 use tokio::sync::Mutex;
+use crate::helpers::CONN_LIMIT;
 
 mod udp_tracker {
 
@@ -305,31 +306,20 @@ async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], 
 }
 
 // Function to get peer list
-pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], announce_url: Option<String>, peer_list: Arc<Mutex<VecDeque<(u32, u16)>>>, announce_list: Option<Vec<String>>) {
+pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], announce_url: Option<String>, peer_list: Arc<Mutex<VecDeque<(u32, u16)>>>, announce_list: Option<Vec<String>>, connections: Arc<Mutex<HashSet<(u32,u16)>>>) {
 
-    // Create udp socket
-    let mut port: u32 = 6881;
-    let mut handles = vec![];
+    loop {
 
-    // Check for announce_url and announce_list
-    if let Some(announce_url) = announce_url.clone() {
-        
-        let tor_ref: Arc<Mutex<VecDeque<(u32, u16)>>> = Arc::clone(&peer_list);
+        while (*(connections.lock().await)).len() as u32 >= CONN_LIMIT || !peer_list.lock().await.is_empty() {}
 
-        let h = tokio::spawn(async move{
-            peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref).await;
-        });   
+        // Create udp socket
+        let mut port: u32 = 6881;
+        let mut handles = vec![];
 
-        handles.push(h);
-        port += 1;
-        
-    }
-
-    if let Some(announce_list) = announce_list.clone() {
-
-        for announce_url in announce_list {
+        // Check for announce_url and announce_list
+        if let Some(announce_url) = announce_url.clone() {
             
-            let tor_ref = Arc::clone(&peer_list);
+            let tor_ref: Arc<Mutex<VecDeque<(u32, u16)>>> = Arc::clone(&peer_list);
 
             let h = tokio::spawn(async move{
                 peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref).await;
@@ -339,13 +329,28 @@ pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], annou
             port += 1;
             
         }
-        
-    }
-    
-    for handle in handles {
-        handle.await.unwrap();
-    }
 
+        if let Some(announce_list) = announce_list.clone() {
+
+            for announce_url in announce_list {
+                
+                let tor_ref = Arc::clone(&peer_list);
+
+                let h = tokio::spawn(async move{
+                    peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref).await;
+                });   
+
+                handles.push(h);
+                port += 1;
+                
+            }
+            
+        }
+        
+        for handle in handles {
+            handle.await.unwrap();
+        }
+    }
 }
 
 
