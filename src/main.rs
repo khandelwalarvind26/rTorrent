@@ -6,7 +6,7 @@ use r_torrent::{
 };
 use tokio;
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
     
     // Open file and get decoded and info hash

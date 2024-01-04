@@ -3,7 +3,7 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
     os::unix::fs::FileExt,
     sync::Arc,
-    io::{Write, stdout}, collections::HashSet
+    io::{Write, stdout}, collections::HashSet, time::Duration
 };
 use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
 use tokio::{
@@ -30,7 +30,9 @@ pub async fn download_file(torrent: Torrent, file_vec: Vec<(File, u64)>) {
             break;
         }
 
-        while (*(torrent.connections.lock().await)).len() as u32 >= CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {}
+        while (*(torrent.connections.lock().await)).len() as u32 >= CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {
+            sleep(Duration::from_millis(1000)).await;
+        }
         let mut q = torrent.peer_list.lock().await;
         let peer = (*q).pop_front().unwrap();
 
@@ -323,6 +325,9 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<(u16, Vec<(b
                 (*freq_arr)[ind].1[j].0 = true;
                 stream.write(&Message::build_request(to_req.unwrap() as u32, j as u32, (*freq_arr)[ind].1[j].1 as u32)).await.unwrap();
                 req += 1;
+                if req >= helpers::QUEUE_LIMIT as usize {
+                    break;
+                }
             }
         }
         req1 = Some(req);
@@ -347,14 +352,14 @@ pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connection
             break;
         }
         let tot = (now as f64) / (1048756 as f64);
-        let speed = ((now - last) as f64) / (1048756 as f64);
+        let speed = ((now - last) as f64) / ((1048756*3) as f64);
         
         stdout.write_all(format!("\rDownloaded: {:.2} MB\nSpeed: {:.2} MB/s\nConnections: {}/{}", tot, speed, connections, CONN_LIMIT).as_bytes()).unwrap();
         
         stdout.execute(cursor::MoveUp(2)).unwrap();
         stdout.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
         last = now;
-        sleep(time::Duration::from_millis(1000)).await;
+        sleep(time::Duration::from_secs(3)).await;
     }
     stdout.execute(cursor::Show).unwrap();
 
