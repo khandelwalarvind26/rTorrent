@@ -41,8 +41,9 @@ async fn main() {
     // Distribute torrent info
     let (announce_url, announce_list) = (torrent.announce_url, torrent.announce_list);
     (torrent.announce_url, torrent.announce_list) = (None, None);
-
-
+    
+    dbg!(&torrent.piece_length, &torrent.piece_freq.lock().await.len(), &torrent.length);
+    
     // Get peers
     let h1 = get_peers(
         torrent.info_hash.clone(),

@@ -19,7 +19,7 @@ pub struct Torrent {
     pub piece_length: u64,
     pub peer_list: Arc<Mutex<VecDeque<(u32,u16)>>>,
     pub peer_id: [u8; 20],
-    pub piece_freq: Arc<Mutex<Vec<(u16, Vec<bool>)>>>,
+    pub piece_freq: Arc<Mutex<Vec<(u16, Vec<(bool, u64)>)>>>,
     pub no_blocks: u64,
     pub downloaded: Arc<Mutex<u64>>,
     pub connections: Arc<Mutex<HashSet<(u32,u16)>>>,
@@ -32,7 +32,9 @@ impl Torrent {
 
         let (decoded, info_hash) = Bencode::decode(file).unwrap();
         let (announce_url, announce_list, name, piece_length, _hashes, length, piece_no, file_list) = Torrent::parse_decoded_helper(&decoded)?;
-        let no_blocks = piece_length/(BLOCK_SIZE as u64);
+
+        let mut no_blocks = piece_length/(BLOCK_SIZE as u64);
+        if piece_length/(BLOCK_SIZE as u64) != 0 { no_blocks += 1; }
 
         let torrent = Torrent { 
             announce_url, 
@@ -43,14 +45,7 @@ impl Torrent {
             piece_length, 
             peer_list: Arc::new(Mutex::new(VecDeque::new())), 
             peer_id: helpers::gen_random_id(), 
-            piece_freq: Arc::new(Mutex::new(
-                vec![
-                    (0,vec![
-                        false; no_blocks as usize
-                        ]); 
-                    piece_no
-                ]
-            )),
+            piece_freq: Arc::new(Mutex::new(Torrent::build_piece_freq(no_blocks, piece_no, piece_length, length))),
             no_blocks,
             downloaded: Arc::new(Mutex::new(0)),
             connections: Arc::new(Mutex::new(HashSet::new())),
@@ -174,6 +169,36 @@ impl Torrent {
         Ok((announce,announce_list,name,piece_length as u64, hashes, length, piece_no, files))
     }
 
+    // Function to build the piece frequency array used by download
+    fn build_piece_freq(no_blocks: u64, piece_no: usize, piece_length: u64, length: u64) -> Vec<(u16, Vec<(bool, u64)>)> {
+        
+        // Vector of all pieces, for each piece contains all blocks for each block a bool and the size of the block
+        let mut piece_freq: Vec<(u16, Vec<(bool, u64)>)> = vec![ (0,vec![(false, BLOCK_SIZE as u64); no_blocks as usize]); piece_no];
+        
+        // Check whether pieces can be perfectly divided into blocks or last block of piece should be lesser in size
+        if piece_length%(BLOCK_SIZE as u64) != 0 {
+            for i in 0..piece_no {
+                piece_freq[i].1.last_mut().unwrap().1 = piece_length%(BLOCK_SIZE as u64);
+            }
+        }
+        
+        // Check whether last piece has same number of blocks as other pieces
+        let last_piece_length = length%piece_length;
+        if last_piece_length != 0 {
+    
+            piece_freq.pop();
+            let last_piece_block_no = last_piece_length/(BLOCK_SIZE as u64);
+            piece_freq.push((0,vec![(false, BLOCK_SIZE as u64); last_piece_block_no as usize]));
+            
+            // Check whether last pieces last block is of BLOCK_SIZE or not
+            if last_piece_length%(BLOCK_SIZE as u64) != 0 { 
+                piece_freq[piece_no-1].1.push((false, (last_piece_length as u64)%(BLOCK_SIZE as u64)));
+            }
+    
+        }
+    
+        piece_freq
+    }
 }
 
 #[derive(Debug)]
