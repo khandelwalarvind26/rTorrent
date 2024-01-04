@@ -41,28 +41,29 @@ async fn main() {
     // Distribute torrent info
     let (announce_url, announce_list) = (torrent.announce_url, torrent.announce_list);
     (torrent.announce_url, torrent.announce_list) = (None, None);
+    
+    dbg!(&torrent.piece_length, &torrent.piece_freq.lock().await.len(), &torrent.length);
+    
+    // // Get peers
+    // let h1 = get_peers(
+    //     torrent.info_hash.clone(),
+    //     torrent.length.clone(),
+    //     torrent.peer_id.clone(),
+    //     announce_url,
+    //     Arc::clone(&torrent.peer_list),
+    //     announce_list,
+    //     torrent.connections.clone()
+    // );
 
 
-    // Get peers
-    let h1 = get_peers(
-        torrent.info_hash.clone(),
-        torrent.length.clone(),
-        torrent.peer_id.clone(),
-        announce_url,
-        Arc::clone(&torrent.peer_list),
-        announce_list,
-        torrent.connections.clone()
-    );
+    // // Display function for downloading
+    // let h2 = download::download_print(Arc::clone(&torrent.downloaded), torrent.length.clone(), Arc::clone(&torrent.connections));
 
 
-    // Display function for downloading
-    let h2 = download::download_print(Arc::clone(&torrent.downloaded), torrent.length.clone(), Arc::clone(&torrent.connections));
+    // // Download torrent
+    // let h3 = download::download_file(torrent, destination);
 
 
-    // Download torrent
-    let h3 = download::download_file(torrent, destination);
-
-
-    tokio::join!(h1, h2, h3);
+    // tokio::join!(h1, h2, h3);
 
 }

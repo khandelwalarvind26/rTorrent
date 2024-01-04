@@ -32,7 +32,9 @@ impl Torrent {
         let (decoded, info_hash) = Bencode::decode(file).unwrap();
         let (announce_url, announce_list, name, piece_length, _hashes, length, piece_no) = Torrent::parse_decoded_helper(&decoded)?;
         let no_blocks = piece_length/(BLOCK_SIZE as u64);
-
+        dbg!(piece_length%(BLOCK_SIZE as u64));
+        dbg!(no_blocks);
+        dbg!(length%(piece_length*(piece_no as u64)));
         let torrent = Torrent { 
             announce_url, 
             announce_list, 
