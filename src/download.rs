@@ -244,7 +244,14 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                     ind += 1;
                 }
                 ind -= 1;
-                ((*file)[ind]).0.write_at(&msg[9..], offset).unwrap();
+                let available = (*file)[ind].1 - offset;
+                if available < (msg.len()-9) as u64 {
+                    ((*file)[ind]).0.write_at(&msg[9..(9 + available) as usize], offset).unwrap();
+                    ((*file)[ind+1]).0.write_at(&msg[(9 + available) as usize ..], offset).unwrap();
+                }
+                else {
+                    ((*file)[ind]).0.write_at(&msg[9..], offset).unwrap();
+                }
 
                 let mut donwloaded = down_ref.lock().await;
                 *donwloaded += (msg.len() - 9) as u64;
