@@ -22,7 +22,8 @@ pub struct Torrent {
     pub piece_freq: Arc<Mutex<Vec<(u16, Vec<bool>)>>>,
     pub no_blocks: u64,
     pub downloaded: Arc<Mutex<u64>>,
-    pub connections: Arc<Mutex<HashSet<(u32,u16)>>>
+    pub connections: Arc<Mutex<HashSet<(u32,u16)>>>,
+    pub file_list: Option<Vec<(String, u64)>>
 }
 
 impl Torrent {
@@ -30,7 +31,7 @@ impl Torrent {
     pub async fn parse_decoded(file: &mut File) -> Result<Torrent, InvalidTorrentFile> {
 
         let (decoded, info_hash) = Bencode::decode(file).unwrap();
-        let (announce_url, announce_list, name, piece_length, _hashes, length, piece_no) = Torrent::parse_decoded_helper(&decoded)?;
+        let (announce_url, announce_list, name, piece_length, _hashes, length, piece_no, file_list) = Torrent::parse_decoded_helper(&decoded)?;
         let no_blocks = piece_length/(BLOCK_SIZE as u64);
 
         let torrent = Torrent { 
@@ -52,7 +53,8 @@ impl Torrent {
             )),
             no_blocks,
             downloaded: Arc::new(Mutex::new(0)),
-            connections: Arc::new(Mutex::new(HashSet::new()))
+            connections: Arc::new(Mutex::new(HashSet::new())),
+            file_list
         };
 
         Ok(torrent)
@@ -61,14 +63,15 @@ impl Torrent {
 
 
     // Function to return Announce Url, name, piece length and hashes from a decoded torrent file
-    fn parse_decoded_helper(decoded: &Element) -> Result<(Option<String>, Option<Vec<String>>, String, u64, Vec<Vec<u8>>, u64, usize), InvalidTorrentFile> {
+    fn parse_decoded_helper(decoded: &Element) -> Result<(Option<String>, Option<Vec<String>>, String, u64, Vec<Vec<u8>>, u64, usize, Option<Vec<(String, u64)>>), InvalidTorrentFile> {
 
         let mut announce = None;
         let mut announce_list = None;
         let mut name = String::new();
         let mut piece_length = 0;
         let mut hashes = Vec::new();
-        let mut length: i64 = 0;
+        let mut length: u64 = 0;
+        let mut files: Option<Vec<(String, u64)>> = None;
         let mut piece_no: usize = 0;
 
         match decoded {
@@ -123,20 +126,39 @@ impl Torrent {
 
                             // Length for single file
                             if info_mp.contains_key("length".as_bytes()) {
-                                if let Element::Integer(l) = &info_mp["length".as_bytes()] { length += l; }
+                                if let Element::Integer(l) = &info_mp["length".as_bytes()] { length += l.abs() as u64; }
                             }
 
                             // Length for multiple files
                             if info_mp.contains_key("files".as_bytes()) {
+
+                                let mut file_list = Vec::new();
+
                                 if let Element::List(files) = &info_mp["files".as_bytes()] {
                                     for file in files {
                                         if let Element::Dict(file_mp) = file {
+                                            
                                             if let Element::Integer(l) = file_mp["length".as_bytes()] {
-                                                length += l;
+
+                                                length += l.abs() as u64;
+                                                let mut path = String::new();
+
+                                                if let Element::List(v) = &file_mp["path".as_bytes()] {
+                                                    for s in v {
+                                                        if let Element::ByteString(part) = s {
+                                                            path += &(String::from_utf8(part.to_owned()).unwrap() + "/");
+                                                        }
+                                                    }
+                                                }
+                                                path.pop();
+                                                file_list.push((path, l.abs() as u64));
                                             }
+
+
                                         }
                                     }
                                 }
+                                files = Some(file_list);
                             }
 
                         }
@@ -149,7 +171,7 @@ impl Torrent {
             _ => { return Err(InvalidTorrentFile{case: 5}); }
             
         }
-        Ok((announce,announce_list,name,piece_length as u64, hashes, length.abs() as u64, piece_no))
+        Ok((announce,announce_list,name,piece_length as u64, hashes, length, piece_no, files))
     }
 
 }
