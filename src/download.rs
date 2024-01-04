@@ -19,10 +19,10 @@ use crate::{
     helpers::{self, BLOCK_SIZE, CONN_LIMIT, on_whole_msg}
 };
 
-pub async fn download_file(torrent: Torrent, file: File) {    
+pub async fn download_file(torrent: Torrent, file_vec: Vec<(File, u64)>) {    
 
     let mut handles = vec![];
-    let file_ref = Arc::new(file);
+    let file_ref = Arc::new(file_vec);
     let piece_length = torrent.piece_length;
 
     loop {
@@ -150,7 +150,7 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 
 }
 
-async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<(bool, u64)>)>>>, file: Arc<File>, piece_length: u64, down_ref: Arc<Mutex<u64>>) {
+async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<(bool, u64)>)>>>, file: Arc<Vec<(File, u64)>>, piece_length: u64, down_ref: Arc<Mutex<u64>>) {
 
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
@@ -164,7 +164,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
         match res {
             Ok(resp) => {
                 match resp {
-                    Ok(_bytes_read) => {},
+                    Ok(_) => {},
                     _ => { return; }
                 }
             },
@@ -177,10 +177,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
         
         // Read id of message
         let mut id = None;
-        if len >= 1 {
-            id = Some(msg[0]);
-
-        }
+        if len >= 1 { id = Some(msg[0]); }
 
         match id {
             None => {
@@ -240,7 +237,21 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 let offset = (index as u64)*piece_length + (begin as u64)*(BLOCK_SIZE as u64);
 
                 // Writing to file at different locations
-                (*file).write_at(&msg[9..], offset).unwrap();
+                let mut ind: usize = 0;
+                let mut length: u64 = 0;
+                while length <= offset  {
+                    length += (*file)[ind].1;
+                    ind += 1;
+                }
+                ind -= 1;
+                let available = (*file)[ind].1 - offset;
+                if available < (msg.len()-9) as u64 {
+                    ((*file)[ind]).0.write_at(&msg[9..(9 + available) as usize], offset).unwrap();
+                    ((*file)[ind+1]).0.write_at(&msg[(9 + available) as usize ..], offset).unwrap();
+                }
+                else {
+                    ((*file)[ind]).0.write_at(&msg[9..], offset).unwrap();
+                }
 
                 let mut donwloaded = down_ref.lock().await;
                 *donwloaded += (msg.len() - 9) as u64;
