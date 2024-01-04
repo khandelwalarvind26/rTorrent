@@ -245,11 +245,8 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 let begin = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
                 let offset = ((index as u64)*no_blocks + begin as u64)*(BLOCK_SIZE as u64);
 
-                let bytes = (*file).write_at(&msg[9..], offset).unwrap();
-
-                
-                // dbg!(index);
-                // dbg!(begin);
+                // Writing to file at different locations
+                (*file).write_at(&msg[9..], offset).unwrap();
 
                 let mut donwloaded = down_ref.lock().await;
                 *donwloaded += (msg.len() - 9) as u64;
@@ -273,7 +270,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
 
         if !choke && requested == None {
 
-            let (mut to_req, mut begin) = (None, None);
+            let mut to_req = None;
             {
                 let mut freq_arr = freq_ref.lock().await;
 
@@ -286,7 +283,6 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                             if (*freq_arr)[i].1[j] == false {
 
                                 to_req = Some(i);
-                                begin = Some(j);
                                 mn = (*freq_arr)[i].0;
                                 break;
 
@@ -298,7 +294,9 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 }
 
                 if to_req != None {
-                    (*freq_arr)[to_req.unwrap()].1[begin.unwrap()] = true;
+                    for j in 0..(*freq_arr)[to_req.unwrap()].1.len() {
+                        (*freq_arr)[to_req.unwrap()].1[j] = true;
+                    }
                 }
                 else {return;}
             }
@@ -308,8 +306,8 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 for i in 0..no_blocks {
                     stream.write(&Message::build_request(to_req.unwrap() as u32, i as u32, BLOCK_SIZE)).await.unwrap();
                 }
+                
                 requested = to_req;
-                dbg!(requested);
 
             }
 
