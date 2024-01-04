@@ -1,6 +1,9 @@
 use std::fmt;
-use std::{fs::File, collections::HashMap};
-use std::io::prelude::*;
+use std::{
+    fs::File, 
+    collections::HashMap,
+    io::prelude::*
+};
 use sha1_smol::Sha1;
 
 // Error type if invalid character found
@@ -14,9 +17,9 @@ impl fmt::Display for InvalidCharError {
 
 #[derive(Debug)]
 pub enum Element {
-    Dict(HashMap<String,Element>),
+    Dict(HashMap<Vec<u8>,Element>),
     Integer(i64),
-    ByteString(String),
+    ByteString(Vec<u8>),
     List(Vec<Element>)
 }
 
@@ -36,16 +39,15 @@ pub struct InvalidCharError{
 pub struct Bencode{
     buf: Vec<u8>,
     ind: usize,
-    curr: char,
-    info_ind: (i32,i32),
-    peers_ind: (i32, i32)
+    curr: u8,
+    info_ind: (i32,i32)
 }
 
 impl Bencode {
 
     fn new(buf: Vec<u8>) -> Bencode {
 
-        Bencode { buf, ind: 0, curr: '\0', info_ind: (-1,-1), peers_ind: (-1,-1)}
+        Bencode { buf, ind: 0, curr: 0, info_ind: (-1,-1)}
 
     }
 
@@ -65,10 +67,10 @@ impl Bencode {
 
     ///Decode bencoded [u8]
     ///Accepts bencoded [u8] and return bencoded dictionary
-    pub fn decode_u8(buf: Vec<u8>) -> Result<(Element, Vec<u8>)> {
+    pub fn decode_u8(buf: Vec<u8>) -> Result<Element> {
         
         let mut instance = Bencode::new(buf);
-        Ok((instance.call_element().unwrap(), instance.read_peers()))
+        Ok(instance.call_element().unwrap())
 
     }
 
@@ -89,38 +91,20 @@ impl Bencode {
 
     }
 
-    fn read_peers(&mut self) -> Vec<u8> {
-        
-        // Create info string
-        let mut peers = Vec::new();
-
-        while self.buf[self.peers_ind.0 as usize] != ':' as u8 {
-            self.peers_ind.0 += 1;
-        }
-
-        self.peers_ind.0 += 1;
-
-        for ind in self.peers_ind.0..self.peers_ind.1 {
-            peers.push(self.buf[ind as usize]);
-        }
-
-        peers
-    }
-
     pub fn encode(decoded: &Element) -> String {
         let mut encoded = String::new();
         match decoded {
             Element::ByteString(s) => {
                 encoded.push_str(s.len().to_string().as_str());
                 encoded.push(':');
-                encoded.push_str(s.as_str());
+                encoded.push_str(&String::from_utf8(s.to_owned()).unwrap());
             },
             Element::Dict(mp) => {
                 encoded.push('d');
                 for (s,element) in mp {
                     encoded.push_str(s.len().to_string().as_str());
                     encoded.push(':');
-                    encoded.push_str(s.as_str());
+                    encoded.push_str(&String::from_utf8(s.to_owned()).unwrap());
                     encoded.push_str(Bencode::encode(element).as_str());
                 }
                 encoded.push('e');
@@ -145,7 +129,7 @@ impl Bencode {
     // Match element using first character and call element to parse respective element
     fn call_element(&mut self) -> Result<Element> {
 
-        match self.read_char() {
+        match self.read_char() as char {
 
             'd' => self.read_dict(),
             '0'..='9' => self.read_byte_string(),
@@ -174,37 +158,39 @@ impl Bencode {
             self.read_char();
 
             // Key of the Dict is always a ByteString so first read key
-            if let Element::ByteString(key) = self.read_byte_string()? {
+            if let Element::ByteString(key1) = self.read_byte_string()? {
                 
+                let key = String::from_utf8_lossy(&key1);
+
                 if key == "info" {
                     self.info_ind.0 = self.ind as i32;
 
                     let value = self.call_element()?;
-                    mp.insert(key, value);
+                    mp.insert(key1, value);
 
                     self.info_ind.1 = self.ind as i32;
 
                 }
-                else if key == "peers" {
-                    self.peers_ind.0 = self.ind as i32;
+                // else if key == "peers" {
+                //     self.peers_ind.0 = self.ind as i32;
 
-                    let value = self.call_element()?;
-                    mp.insert(key, value);
+                //     let value = self.call_element()?;
+                //     mp.insert(key1, value);
 
-                    self.peers_ind.1 = self.ind as i32;
-                }
+                //     self.peers_ind.1 = self.ind as i32;
+                // }
                 else {
 
                     // parse value which can be any Element and insert key value pair in HashMap
                     let value = self.call_element()?;
-                    mp.insert(key, value); 
+                    mp.insert(key1, value); 
 
                 }
 
             }
 
             // Break if at end of dict
-            if self.read_char() == 'e' {
+            if self.read_char() == 'e' as u8 {
                 break 'outer;
             }
 
@@ -227,12 +213,12 @@ impl Bencode {
         let mut sz: u64 = 0;
 
         // get size of string
-        while self.read_char() != ':' {
+        while self.read_char() != ':' as u8 {
             sz *= 10;
             sz += (self.get_char() as u8 - '0' as u8) as u64;
         }
 
-        let mut s = String::new();
+        let mut s = Vec::new();
 
         // get string
         for _ in 0..sz {
@@ -251,8 +237,8 @@ impl Bencode {
         let mut fin: i64 = 0;
         let mut mult: i64 = 1;
         // read integer until end char recieved
-        while self.read_char() != 'e' {
-            if self.get_char() == '-' {
+        while self.read_char() != 'e' as u8 {
+            if self.get_char() == '-' as u8 {
                 mult = -1;
                 continue;
             }
@@ -270,7 +256,7 @@ impl Bencode {
         let mut v = Vec::new();
 
         // Read elements until end char recived
-        while self.read_char() != 'e' {
+        while self.read_char() != 'e' as u8 {
             self.unread_char();
             v.push(self.call_element()?);
         }
@@ -280,22 +266,22 @@ impl Bencode {
     }
 
     // Function to return next char in buffer
-    fn read_char(&mut self) -> char {
-        let tmp = self.buf[self.ind] as char;
+    fn read_char(&mut self) -> u8 {
+        let tmp = self.buf[self.ind];
         self.curr = tmp;
         self.ind += 1;
         tmp
     }
 
     // Return currently read char
-    fn get_char(&self) -> char {
+    fn get_char(&self) -> u8 {
         self.curr
     }
 
     // Unread a character in current buffer 
     fn unread_char(&mut self) {
         self.ind -= 1;
-        self.curr = self.buf[self.ind] as char;
+        self.curr = self.buf[self.ind];
     }
     
 }
