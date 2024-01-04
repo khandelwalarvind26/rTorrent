@@ -23,7 +23,7 @@ pub async fn download_file(torrent: Torrent, file: File) {
 
     let mut handles = vec![];
     let file_ref = Arc::new(file);
-    let no_blocks = torrent.no_blocks;
+    let piece_length = torrent.piece_length;
 
     loop {
         if *(torrent.downloaded.lock().await) == torrent.length {
@@ -34,7 +34,7 @@ pub async fn download_file(torrent: Torrent, file: File) {
         let mut q = torrent.peer_list.lock().await;
         let peer = (*q).pop_front().unwrap();
 
-        let freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>> = Arc::clone(&torrent.piece_freq);
+        let freq_ref:Arc<Mutex<Vec<(u16, Vec<(bool, u64)>)>>>  = Arc::clone(&torrent.piece_freq);
         let file_ref = Arc::clone(&file_ref);
         let down_ref = Arc::clone(&torrent.downloaded);
         let conn_ref = Arc::clone(&torrent.connections);
@@ -51,7 +51,7 @@ pub async fn download_file(torrent: Torrent, file: File) {
                     let mut connections = conn_ref.lock().await;
                     (*connections).insert(peer);
                 }
-                handle_connection(stream, freq_ref, file_ref, no_blocks, down_ref).await;
+                handle_connection(stream, freq_ref, file_ref, piece_length, down_ref).await;
                 {
                     let mut connections = conn_ref.lock().await;
                     (*connections).remove(&peer);
@@ -150,7 +150,7 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 
 }
 
-async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<bool>)>>>, file: Arc<File>, no_blocks: u64, down_ref: Arc<Mutex<u64>>) {
+async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, Vec<(bool, u64)>)>>>, file: Arc<File>, piece_length: u64, down_ref: Arc<Mutex<u64>>) {
 
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
@@ -165,16 +165,10 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
             Ok(resp) => {
                 match resp {
                     Ok(_bytes_read) => {},
-                    Err(_) => {
-                        // dbg!(err);
-                        return;
-                    }
+                    _ => { return; }
                 }
             },
-            Err(_err) => {
-                // dbg!("Terminating: Waiting for server response timed out");
-                return;
-            }
+            _ => { return; }
         }
 
         let len = ReadBytesExt::read_u32::<BigEndian>(&mut buf.as_ref()).unwrap();
@@ -243,7 +237,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 let buf = &mut msg.as_mut_slice()[1..].as_ref();
                 let index = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
                 let begin = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
-                let offset = ((index as u64)*no_blocks + begin as u64)*(BLOCK_SIZE as u64);
+                let offset = (index as u64)*piece_length + (begin as u64)*(BLOCK_SIZE as u64);
 
                 // Writing to file at different locations
                 (*file).write_at(&msg[9..], offset).unwrap();
@@ -251,7 +245,8 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 let mut donwloaded = down_ref.lock().await;
                 *donwloaded += (msg.len() - 9) as u64;
 
-                if begin == (no_blocks - 1) as u32{
+                requested = Some(requested.unwrap() - 1);
+                if requested.unwrap() <= 0 {
                     requested = None;
                 }
 
@@ -263,59 +258,68 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
                 // port
             },
             _ => {
-                // dbg!("Invalid response ", id);
                 return;
             }
         }
 
         if !choke && requested == None {
 
-            let mut to_req = None;
-            {
-                let mut freq_arr = freq_ref.lock().await;
-
-                let mut mn = u16::MAX;
-                for i in 0..(*freq_arr).len() {
-                    if (*freq_arr)[i].0 < mn {
-
-                        for j in 0..(*freq_arr)[i].1.len() {
-
-                            if (*freq_arr)[i].1[j] == false {
-
-                                to_req = Some(i);
-                                mn = (*freq_arr)[i].0;
-                                break;
-
-                            }
-                        }
-                        
-                    }
-
-                }
-
-                if to_req != None {
-                    for j in 0..(*freq_arr)[to_req.unwrap()].1.len() {
-                        (*freq_arr)[to_req.unwrap()].1[j] = true;
-                    }
-                }
-                else {return;}
-            }
-
-            if to_req != None {
-                
-                for i in 0..no_blocks {
-                    stream.write(&Message::build_request(to_req.unwrap() as u32, i as u32, BLOCK_SIZE)).await.unwrap();
-                }
-                
-                requested = to_req;
-
-            }
+            let (req, s) = make_request(freq_ref.lock().await, stream).await;
+            stream = s;
+            if req == None {return;}
+            requested = req;
 
         }
 
     }
 
 }
+
+async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<(u16, Vec<(bool, u64)>)>>, mut stream: TcpStream ) -> (Option<usize>, TcpStream) {
+
+    let mut to_req = None;
+    let mut mn = u16::MAX;
+
+    // Find piece with minimum nodes
+    for i in 0..(*freq_arr).len() {
+        if (*freq_arr)[i].0 < mn {
+
+            for j in 0..(*freq_arr)[i].1.len() {
+
+                if (*freq_arr)[i].1[j].0 == false {
+
+                    to_req = Some(i);
+                    mn = (*freq_arr)[i].0;
+                    break;
+
+                }
+            }
+            
+        }
+
+    }
+
+    let mut req1 = None;
+
+    if to_req != None {
+        
+        let ind = to_req.unwrap();
+        let mut req = 0;
+
+        let len = (*freq_arr)[to_req.unwrap()].1.len();
+        for j in 0..len {
+            if (*freq_arr)[ind].1[j].0 == false {
+                (*freq_arr)[ind].1[j].0 = true;
+                stream.write(&Message::build_request(to_req.unwrap() as u32, j as u32, (*freq_arr)[ind].1[j].1 as u32)).await.unwrap();
+                req += 1;
+            }
+        }
+        req1 = Some(req);
+    }
+
+    (req1, stream)
+}
+
 
 pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<HashSet<(u32,u16)>>>) {
 
