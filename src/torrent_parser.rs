@@ -56,7 +56,6 @@ impl Torrent {
 
     }
 
-
     // Function to return Announce Url, name, piece length and hashes from a decoded torrent file
     fn parse_decoded_helper(decoded: &Element) -> Result<(Option<String>, Option<Vec<String>>, String, u64, Vec<Vec<u8>>, u64, usize, Option<Vec<(String, u64)>>), InvalidTorrentFile> {
 
