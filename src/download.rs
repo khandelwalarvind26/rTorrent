@@ -149,13 +149,16 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
         
 
         // Read length
-        let len = get_length(&mut stream).await.unwrap();
+        let mut msg;
+        if let Some(len) = get_length(&mut stream).await {
+            msg = on_whole_msg(&mut stream, len).await;
+        }
+        else { return; }
 
-        let mut msg = on_whole_msg(&mut stream, len).await;
         
         // Read id of message
         let mut id = None;
-        if len >= 1 { id = Some(msg[0]); }
+        if msg.len() >= 1 { id = Some(msg[0]); }
 
         match id {
             None => {
@@ -189,7 +192,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
 
                 //bitfield
                 let mut freq_arr = freq_ref.lock().await;
-                for i in 1..len {
+                for i in 1..msg.len() {
                     for (j, val) in helpers::u8_to_bin(msg[i as usize]).iter().enumerate() {
 
                         let ind = (i as usize -1)*8 + j;
@@ -235,7 +238,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
         if !choke && requested == None {
 
             let req = make_request(freq_ref.lock().await, &mut stream).await;
-            if req == None {break;}
+            if req == None {return;}
             requested = req;
 
         }
