@@ -1,5 +1,5 @@
 use std::{sync::Arc, collections::{VecDeque, HashSet}};
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::{sleep, self}};
 use crate::helpers::CONN_LIMIT;
 
 mod udp_tracker {
@@ -350,6 +350,8 @@ pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], annou
         for handle in handles {
             handle.await.unwrap();
         }
+
+        sleep(time::Duration::from_secs(5)).await;
     }
 }
 
