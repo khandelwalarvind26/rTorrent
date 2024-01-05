@@ -1,4 +1,4 @@
-use std::{fs::{File, self},env, sync::Arc};
+use std::{fs::{File, self, OpenOptions},env, sync::Arc};
 use r_torrent::{
     torrent_parser::Torrent,
     download,
@@ -44,17 +44,33 @@ async fn main() {
 
         // Create dir based on destination dir
         // Substitute for create_dir_all in future
-        fs::create_dir(&destination_dir).unwrap();
+        fs::create_dir_all(&destination_dir).unwrap();
 
         // Create files inside that dir
         for (path, size) in torrent.file_list.unwrap() {
             let file_path = destination_dir.join(path);
-            file_vec.push((File::create(file_path).unwrap(), size));
+            file_vec.push((
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(file_path)
+                    .unwrap(), 
+                size
+            ));
         }
         torrent.file_list = None;
     }
     else {
-        file_vec.push((File::create(destination_dir).unwrap(), torrent.length));
+        file_vec.push((
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(destination_dir)
+                .unwrap(), 
+            torrent.length
+        ));
     }
 
 
