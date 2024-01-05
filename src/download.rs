@@ -33,39 +33,43 @@ pub async fn download_file(torrent: Torrent, file_vec: Vec<(File, u64)>) {
         while (*(torrent.connections.lock().await)).len() as u32 >= CONN_LIMIT || torrent.peer_list.lock().await.is_empty() {
             sleep(Duration::from_millis(1000)).await;
         }
-        let mut q = torrent.peer_list.lock().await;
-        let peer = (*q).pop_front().unwrap();
 
-        let freq_ref:Arc<Mutex<Vec<(u16, Vec<(bool, u64)>)>>>  = Arc::clone(&torrent.piece_freq);
-        let file_ref = Arc::clone(&file_ref);
-        let down_ref = Arc::clone(&torrent.downloaded);
-        let conn_ref = Arc::clone(&torrent.connections);
+        while !torrent.peer_list.lock().await.is_empty() {
+            let mut q = torrent.peer_list.lock().await;
+            let peer = (*q).pop_front().unwrap();
 
-        if (*(conn_ref.lock().await)).contains(&peer) {
-            continue;
+            let freq_ref:Arc<Mutex<Vec<(u16, Vec<(bool, u64)>)>>>  = Arc::clone(&torrent.piece_freq);
+            let file_ref = Arc::clone(&file_ref);
+            let down_ref = Arc::clone(&torrent.downloaded);
+            let conn_ref = Arc::clone(&torrent.connections);
+
+            if (*(conn_ref.lock().await)).contains(&peer) {
+                continue;
+            }
+
+            let h = tokio::spawn( async move{
+
+                let stream = connect(peer, torrent.info_hash, torrent.peer_id).await;
+                if let Some(stream) = stream {
+                    {
+                        let mut connections = conn_ref.lock().await;
+                        (*connections).insert(peer);
+                    }
+                    handle_connection(stream, freq_ref, file_ref, piece_length, down_ref).await;
+                    {
+                        let mut connections = conn_ref.lock().await;
+                        (*connections).remove(&peer);
+                    }
+                }
+                else {
+                    return;
+                }
+            });
+
+            handles.push(h);
         }
-
-        let h = tokio::spawn( async move{
-
-            let stream = connect(peer, torrent.info_hash, torrent.peer_id).await;
-            if let Some(stream) = stream {
-                {
-                    let mut connections = conn_ref.lock().await;
-                    (*connections).insert(peer);
-                }
-                handle_connection(stream, freq_ref, file_ref, piece_length, down_ref).await;
-                {
-                    let mut connections = conn_ref.lock().await;
-                    (*connections).remove(&peer);
-                }
-            }
-            else {
-                return;
-            }
-        });
-
-        handles.push(h);
         
+        sleep(time::Duration::from_secs(5)).await;
     }
 
     for handle in handles {
