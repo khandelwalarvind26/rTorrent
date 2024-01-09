@@ -146,7 +146,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
     let mut requested: HashSet<u32> = HashSet::new();
-    let mut piece_req = 0;
+    let mut piece_req: Option<usize> = None;
 
     loop {
         
@@ -161,7 +161,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
 
                 let mut freq = freq_ref.lock().await;
                 for begin in requested {
-                    (*freq)[piece_req].blocks[begin as usize].0 = false;
+                    (*freq)[piece_req.unwrap()].blocks[begin as usize].0 = false;
                 }
 
             }
@@ -231,12 +231,12 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                 requested.remove(&begin);
 
                 if requested.is_empty() {
-                    if !verify_piece(piece_req, (*freq_ref.lock().await)[piece_req].length, file.clone(), &(*hashes)[piece_req]) {
+                    if !verify_piece(piece_req.unwrap(), (*freq_ref.lock().await)[piece_req.unwrap()].length, file.clone(), &(*hashes)[piece_req.unwrap()]) {
                         println!("false");
                         let mut freq = freq_ref.lock().await;
 
-                        for j in 0..(*freq)[piece_req].blocks.len() {
-                            (*freq)[piece_req].blocks[j].0 = false;
+                        for j in 0..(*freq)[piece_req.unwrap()].blocks.len() {
+                            (*freq)[piece_req.unwrap()].blocks[j].0 = false;
                         }
                     }
                     else {
@@ -338,7 +338,7 @@ async fn get_length(stream: &mut TcpStream) -> Option<u32> {
     Some(ReadBytesExt::read_u32::<BigEndian>(&mut buf.as_ref()).unwrap())
 }
 
-async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, stream: &mut TcpStream, bitfield: &Vec<bool> ) -> (HashSet<u32>, usize) {
+async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, stream: &mut TcpStream, bitfield: &Vec<bool> ) -> (HashSet<u32>, Option<usize>) {
 
     let mut to_req = None;
     let mut mn = u16::MAX;
@@ -368,7 +368,7 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
         
         let ind = to_req.unwrap();
 
-        let len = (*freq_arr)[to_req.unwrap()].blocks.len();
+        let len = (*freq_arr)[ind].blocks.len();
         for j in 0..len {
             if (*freq_arr)[ind].blocks[j].0 == false {
                 (*freq_arr)[ind].blocks[j].0 = true;
@@ -378,7 +378,7 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
         }
     }
 
-    (req, to_req.unwrap())
+    (req, to_req)
 }
 
 fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, piece_length: u64) -> u32 {
