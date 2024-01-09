@@ -237,7 +237,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<(u16, 
 
         if !choke && requested == None {
 
-            let req = make_request(freq_ref.lock().await, &mut stream).await;
+            let req = make_request(freq_ref.lock().await, &mut stream, &bitfield).await;
             if req == None {return;}
             requested = req;
 
@@ -264,14 +264,14 @@ async fn get_length(stream: &mut TcpStream) -> Option<u32> {
     Some(ReadBytesExt::read_u32::<BigEndian>(&mut buf.as_ref()).unwrap())
 }
 
-async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<(u16, Vec<(bool, u64)>)>>, stream: &mut TcpStream ) -> Option<usize> {
+async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<(u16, Vec<(bool, u64)>)>>, stream: &mut TcpStream, bitfield: &Vec<bool>) -> Option<usize> {
 
     let mut to_req = None;
     let mut mn = u16::MAX;
 
     // Find piece with minimum nodes
     for i in 0..(*freq_arr).len() {
-        if (*freq_arr)[i].0 < mn {
+        if bitfield[i] && (*freq_arr)[i].0 < mn {
 
             for j in 0..(*freq_arr)[i].1.len() {
 
