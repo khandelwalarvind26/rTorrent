@@ -9,7 +9,6 @@ use crate:: {
     helpers::{self, BLOCK_SIZE}
 };
 
-#[derive(Debug)]
 pub struct Torrent {
     pub announce_url: Option<String>,
     pub announce_list: Option<Vec<String>>,
@@ -19,11 +18,19 @@ pub struct Torrent {
     pub piece_length: u64,
     pub peer_list: Arc<Mutex<VecDeque<(u32,u16)>>>,
     pub peer_id: [u8; 20],
-    pub piece_freq: Arc<Mutex<Vec<(u16, Vec<(bool, u64)>)>>>,
+    pub piece_freq: Arc<Mutex<Vec<Piece>>>,
     pub no_blocks: u64,
     pub downloaded: Arc<Mutex<u64>>,
     pub connections: Arc<Mutex<HashSet<(u32,u16)>>>,
-    pub file_list: Option<Vec<(String, u64)>>
+    pub file_list: Option<Vec<(String, u64)>>,
+    pub piece_hashes: Arc<Vec<Vec<u8>>>
+}
+
+#[derive(Clone)]
+pub struct Piece {
+    pub ref_no: u16,
+    pub length: u64,
+    pub blocks: Vec<(bool, u64)>,
 }
 
 impl Torrent {
@@ -31,7 +38,7 @@ impl Torrent {
     pub async fn parse_decoded(file: &mut File) -> Result<Torrent, InvalidTorrentFile> {
 
         let (decoded, info_hash) = Bencode::decode(file).unwrap();
-        let (announce_url, announce_list, name, piece_length, _hashes, length, piece_no, file_list) = Torrent::parse_decoded_helper(&decoded)?;
+        let (announce_url, announce_list, name, piece_length, hashes, length, piece_no, file_list) = Torrent::parse_decoded_helper(&decoded)?;
 
         let mut no_blocks = piece_length/(BLOCK_SIZE as u64);
         if piece_length/(BLOCK_SIZE as u64) != 0 { no_blocks += 1; }
@@ -49,7 +56,8 @@ impl Torrent {
             no_blocks,
             downloaded: Arc::new(Mutex::new(0)),
             connections: Arc::new(Mutex::new(HashSet::new())),
-            file_list
+            file_list,
+            piece_hashes: Arc::new(hashes)
         };
 
         Ok(torrent)
@@ -169,35 +177,47 @@ impl Torrent {
     }
 
     // Function to build the piece frequency array used by download
-    fn build_piece_freq(no_blocks: u64, piece_no: usize, piece_length: u64, length: u64) -> Vec<(u16, Vec<(bool, u64)>)> {
+    fn build_piece_freq(no_blocks: u64, piece_no: usize, piece_length: u64, length: u64) -> Vec<Piece> {
         
         // Vector of all pieces, for each piece contains all blocks for each block a bool and the size of the block
-        let mut piece_freq: Vec<(u16, Vec<(bool, u64)>)> = vec![ (0,vec![(false, BLOCK_SIZE as u64); no_blocks as usize]); piece_no];
+        let mut piece_freq = vec! [
+            Piece {
+                ref_no: 0,
+                length: piece_length,
+                blocks: vec![(false, BLOCK_SIZE as u64); no_blocks as usize]
+            };
+            piece_no
+        ];
         
         // Check whether pieces can be perfectly divided into blocks or last block of piece should be lesser in size
         if piece_length%(BLOCK_SIZE as u64) != 0 {
             for i in 0..piece_no {
-                piece_freq[i].1.last_mut().unwrap().1 = piece_length%(BLOCK_SIZE as u64);
+                piece_freq[i].blocks.last_mut().unwrap().1 = piece_length%(BLOCK_SIZE as u64);
             }
         }
         
         // Check whether last piece has same number of blocks as other pieces
         let last_piece_length = length%piece_length;
         if last_piece_length != 0 {
-    
-            piece_freq.pop();
+            
+            piece_freq.last_mut().unwrap().length = last_piece_length;
+
             let last_piece_block_no = last_piece_length/(BLOCK_SIZE as u64);
-            piece_freq.push((0,vec![(false, BLOCK_SIZE as u64); last_piece_block_no as usize]));
+
+            while piece_freq[piece_no - 1].blocks.len() != last_piece_block_no as usize {
+                piece_freq[piece_no - 1].blocks.pop();
+            }
             
             // Check whether last pieces last block is of BLOCK_SIZE or not
             if last_piece_length%(BLOCK_SIZE as u64) != 0 { 
-                piece_freq[piece_no-1].1.push((false, (last_piece_length as u64)%(BLOCK_SIZE as u64)));
+                piece_freq[piece_no-1].blocks.push((false, (last_piece_length as u64)%(BLOCK_SIZE as u64)));
             }
     
         }
     
         piece_freq
     }
+
 }
 
 #[derive(Debug)]
