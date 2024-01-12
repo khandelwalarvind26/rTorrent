@@ -171,14 +171,6 @@ impl Bencode {
                     self.info_ind.1 = self.ind as i32;
 
                 }
-                // else if key == "peers" {
-                //     self.peers_ind.0 = self.ind as i32;
-
-                //     let value = self.call_element()?;
-                //     mp.insert(key1, value);
-
-                //     self.peers_ind.1 = self.ind as i32;
-                // }
                 else {
 
                     // parse value which can be any Element and insert key value pair in HashMap
