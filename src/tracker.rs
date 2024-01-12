@@ -245,10 +245,10 @@ mod http_tracker {
         ret
     }
 
-    pub async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32 ) -> Vec<(u32,u16)> {
+    pub async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32, downloaded: u64) -> Vec<(u32,u16)> {
         
-        let request = url_parser(info_hash.to_owned(), peer_id.to_owned(), announce_url, port, 0, 0, length.to_owned(), true, "started", Some(50));
-
+        let request = url_parser(info_hash.to_owned(), peer_id.to_owned(), announce_url, port, 0, downloaded, length.to_owned() - downloaded, true, "started", Some(50));
+        
         let res = reqwest::get(request)
                         .await
                         .unwrap()
@@ -287,16 +287,16 @@ mod http_tracker {
 
 async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32, tor_ref: Arc<Mutex<VecDeque<(u32,u16)>>> ) {
 
-    let res;
+    let mut res = None;
     if announce_url[0..=5].as_bytes() == "udp://".as_bytes() {
         res = udp_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port).await;
     }
-    else {
-        res = Some(http_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port).await);
+    else if announce_url[0..4].as_bytes() == "http".as_bytes() {
+        res = Some(http_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port, 0).await);
     }
 
     if let Some(peers) = res {
-
+        
         let mut tor = tor_ref.lock().await;
         for peer in peers {
             (*tor).push_back(peer);
@@ -354,5 +354,3 @@ pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], annou
         sleep(time::Duration::from_secs(5)).await;
     }
 }
-
-
