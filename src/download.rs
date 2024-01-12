@@ -16,14 +16,13 @@ use byteorder::{BigEndian, ReadBytesExt};
 use crate::{
     torrent_parser::{Torrent, Piece}, 
     message::{HandshakeMsg, Message}, 
-    helpers::{self, BLOCK_SIZE, CONN_LIMIT, on_whole_msg}
+    helpers::{self, CONN_LIMIT, on_whole_msg}
 };
 
 pub async fn download_file(torrent: Torrent, file_vec: Vec<(File, u64)>) {    
 
     let mut handles = vec![];
     let file_ref = Arc::new(file_vec);
-    let piece_length = torrent.piece_length;
 
     loop {
         if *(torrent.downloaded.lock().await) == torrent.length {
@@ -55,7 +54,7 @@ pub async fn download_file(torrent: Torrent, file_vec: Vec<(File, u64)>) {
                         let mut connections = conn_ref.lock().await;
                         (*connections).insert(peer);
                     }
-                    handle_connection(stream, freq_ref, file_ref, piece_length, down_ref).await;
+                    handle_connection(stream, freq_ref, file_ref, down_ref).await;
                     {
                         let mut connections = conn_ref.lock().await;
                         (*connections).remove(&peer);
@@ -140,10 +139,11 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 }
 
 async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File, u64)>>,piece_length: u64, down_ref: Arc<Mutex<u64>>) {
-
+  
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
-    let mut requested: Option<usize> = None;
+    let mut requested: HashSet<u32> = HashSet::new();
+    let mut piece_req: Option<usize> = None;
 
     loop {
         
@@ -153,7 +153,17 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
         if let Some(len) = get_length(&mut stream).await {
             msg = on_whole_msg(&mut stream, len).await;
         }
-        else { return; }
+        else { 
+            if !requested.is_empty() {
+
+                let mut freq = freq_ref.lock().await;
+                for begin in requested {
+                    (*freq)[piece_req.unwrap()].blocks[begin as usize].is_req = false;
+                }
+
+            }
+            return; 
+        }
 
         
         // Read id of message
@@ -235,11 +245,10 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
             }
         }
 
-        if !choke && requested == None {
+        if !choke && requested.is_empty() {
 
-            let req = make_request(freq_ref.lock().await, &mut stream, &bitfield).await;
-            if req == None {return;}
-            requested = req;
+            (requested, piece_req) = make_request(freq_ref.lock().await, &mut stream, &bitfield).await;
+            if requested.is_empty() {return;}
 
         }
 
@@ -288,12 +297,11 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
 
     }
 
-    let mut req1 = None;
-
+    let mut req: HashSet<u32> = HashSet::new();
+    
     if to_req != None {
         
         let ind = to_req.unwrap();
-        let mut req = 0;
 
         let len = (*freq_arr)[to_req.unwrap()].blocks.len();
         for j in 0..len {
@@ -306,10 +314,9 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
                 }
             }
         }
-        req1 = Some(req);
     }
 
-    req1
+    (req, to_req)
 }
 
 fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, piece_length: u64) -> u32 {
@@ -317,7 +324,7 @@ fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, piece_length: u6
     let buf = &mut msg.as_mut_slice()[1..].as_ref();
     let index = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
     let begin = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
-    let offset = (index as u64)*piece_length + (begin as u64)*(BLOCK_SIZE as u64);
+    let offset = (*freq_ref).lock().await[index as usize].blocks[begin as usize].offset as u64;
 
     // Writing to file at different locations
     let mut ind: usize = 0;
