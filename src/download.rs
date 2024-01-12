@@ -6,7 +6,6 @@ use std::{
     io::{Write, stdout}, collections::HashSet, time::Duration
 };
 use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
-use sha1_smol::Sha1;
 use tokio::{
     io::{AsyncWriteExt, AsyncReadExt},
     net::TcpStream,
@@ -42,7 +41,6 @@ pub async fn download_file(torrent: Torrent, file_vec: Vec<(File, u64)>) {
             let file_ref = Arc::clone(&file_ref);
             let down_ref = Arc::clone(&torrent.downloaded);
             let conn_ref = Arc::clone(&torrent.connections);
-            let hashes = torrent.piece_hashes.clone();
 
             if (*(conn_ref.lock().await)).contains(&peer) {
                 continue;
@@ -56,7 +54,7 @@ pub async fn download_file(torrent: Torrent, file_vec: Vec<(File, u64)>) {
                         let mut connections = conn_ref.lock().await;
                         (*connections).insert(peer);
                     }
-                    handle_connection(stream, freq_ref, file_ref, down_ref, hashes).await;
+                    handle_connection(stream, freq_ref, file_ref, down_ref).await;
                     {
                         let mut connections = conn_ref.lock().await;
                         (*connections).remove(&peer);
@@ -140,7 +138,7 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 
 }
 
-async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File, u64)>>, down_ref: Arc<Mutex<u64>>, hashes: Arc<Vec<Vec<u8>>>) {
+async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File, u64)>>, down_ref: Arc<Mutex<u64>>) {
 
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
@@ -229,21 +227,6 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                 let begin = write_to_file(msg, file.clone(), freq_ref.clone()).await;
                 requested.remove(&begin);
 
-                if requested.is_empty() {
-                    if !verify_piece((*freq_ref.lock().await)[piece_req.unwrap()].length, file.clone(), &(*hashes)[piece_req.unwrap()], (*freq_ref.lock().await)[piece_req.unwrap()].blocks[0].offset) {
-                        println!("false");
-                        let mut freq = freq_ref.lock().await;
-
-                        for j in 0..(*freq)[piece_req.unwrap()].blocks.len() {
-                            (*freq)[piece_req.unwrap()].blocks[j].is_req = false;
-                        }
-                    }
-                    else {
-                        println!("true");
-                    }
-
-                }
-
             },
             Some(8) => {
                 // cancel
@@ -263,58 +246,6 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
 
         }
 
-    }
-
-}
-
-fn verify_piece(piece_length: u64, file: Arc<Vec<(File,u64)>>, hash: &Vec<u8>, offset: u64) -> bool {
-
-    let mut buf = vec![0u8; piece_length as usize];
-
-    // Reading file at different locations
-    let mut ind: usize = 0;
-    let mut length: u64 = 0;
-    while length <= offset  {
-        length += (*file)[ind].1;
-        ind += 1;
-    }
-    ind -= 1;
-
-    // Read file
-    let mut read = 0;
-    while read != piece_length as usize && ind < (*file).len() {
-        let res = (*file)[ind].0.read_at(&mut buf[read..], offset);
-
-        // Return false if error in reading
-        match res {
-            Ok(bytes) => { read += bytes; },
-            Err(e) => {
-                dbg!(e); 
-                return false; 
-            }
-        }
-
-        ind += 1;
-    }
-
-    if read != piece_length as usize {
-        dbg!(read);
-        dbg!(piece_length);
-        return false;
-    }
-
-    // Generate hash
-    let mut hasher = Sha1::new();
-    hasher.update(&buf);
-
-    // Validate hash
-    if (*hash) == hasher.digest().bytes() {
-        return true;
-    }
-    else {
-        dbg!(hash.len());
-        dbg!(hasher.digest().bytes().len());
-        return false;
     }
 
 }
