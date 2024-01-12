@@ -296,7 +296,7 @@ async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], 
     }
 
     if let Some(peers) = res {
-        println!("{}",peers.len());
+        
         let mut tor = tor_ref.lock().await;
         for peer in peers {
             (*tor).push_back(peer);
@@ -354,5 +354,3 @@ pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], annou
         sleep(time::Duration::from_secs(5)).await;
     }
 }
-
-

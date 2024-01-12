@@ -138,8 +138,8 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 
 }
 
-async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File, u64)>>, down_ref: Arc<Mutex<u64>>) {
-
+async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File, u64)>>,piece_length: u64, down_ref: Arc<Mutex<u64>>) {
+  
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
     let mut requested: HashSet<u32> = HashSet::new();
@@ -224,8 +224,14 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                 let mut donwloaded = down_ref.lock().await;
                 *donwloaded += (msg.len() - 9) as u64;
 
-                let begin = write_to_file(msg, file.clone(), freq_ref.clone()).await;
-                requested.remove(&begin);
+                // let h = 
+                let _begin = write_to_file(msg, file.clone(), piece_length);
+                // handles.push(h);
+
+                requested = Some(requested.unwrap() - 1);
+                if requested.unwrap() <= 0 {
+                    requested = None;
+                }
 
             },
             Some(8) => {
@@ -267,7 +273,7 @@ async fn get_length(stream: &mut TcpStream) -> Option<u32> {
     Some(ReadBytesExt::read_u32::<BigEndian>(&mut buf.as_ref()).unwrap())
 }
 
-async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, stream: &mut TcpStream, bitfield: &Vec<bool> ) -> (HashSet<u32>, Option<usize>) {
+async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, stream: &mut TcpStream, bitfield: &Vec<bool>) -> Option<usize> {
 
     let mut to_req = None;
     let mut mn = u16::MAX;
@@ -297,12 +303,15 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
         
         let ind = to_req.unwrap();
 
-        let len = (*freq_arr)[ind].blocks.len();
+        let len = (*freq_arr)[to_req.unwrap()].blocks.len();
         for j in 0..len {
             if (*freq_arr)[ind].blocks[j].is_req == false {
                 (*freq_arr)[ind].blocks[j].is_req = true;
                 stream.write(&Message::build_request(to_req.unwrap() as u32, j as u32, (*freq_arr)[ind].blocks[j].length as u32)).await.unwrap();
-                req.insert(j as u32);
+                req += 1;
+                if req >= helpers::QUEUE_LIMIT as usize {
+                    break;
+                }
             }
         }
     }
@@ -310,7 +319,7 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
     (req, to_req)
 }
 
-async fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, freq_ref: Arc<Mutex<Vec<Piece>>>) -> u32 {
+fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, piece_length: u64) -> u32 {
     // piece
     let buf = &mut msg.as_mut_slice()[1..].as_ref();
     let index = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
@@ -333,6 +342,7 @@ async fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, freq_ref: 
     else {
         ((*file)[ind]).0.write_at(&msg[9..], offset).unwrap();
     }
+
     begin
 }
 
