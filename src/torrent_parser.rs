@@ -30,7 +30,14 @@ pub struct Torrent {
 pub struct Piece {
     pub ref_no: u16,
     pub length: u64,
-    pub blocks: Vec<(bool, u64)>,
+    pub blocks: Vec<Block>,
+}
+
+#[derive(Clone)]
+pub struct Block {
+    pub is_req: bool,
+    pub length: u64,
+    pub offset: u64
 }
 
 impl Torrent {
@@ -184,7 +191,14 @@ impl Torrent {
             Piece {
                 ref_no: 0,
                 length: piece_length,
-                blocks: vec![(false, BLOCK_SIZE as u64); no_blocks as usize]
+                blocks: vec![
+                        Block {
+                            is_req: false,
+                            length: BLOCK_SIZE as u64,
+                            offset: 0
+                        }; 
+                        no_blocks as usize
+                    ]
             };
             piece_no
         ];
@@ -192,7 +206,7 @@ impl Torrent {
         // Check whether pieces can be perfectly divided into blocks or last block of piece should be lesser in size
         if piece_length%(BLOCK_SIZE as u64) != 0 {
             for i in 0..piece_no {
-                piece_freq[i].blocks.last_mut().unwrap().1 = piece_length%(BLOCK_SIZE as u64);
+                piece_freq[i].blocks.last_mut().unwrap().length = piece_length%(BLOCK_SIZE as u64);
             }
         }
         
@@ -210,9 +224,24 @@ impl Torrent {
             
             // Check whether last pieces last block is of BLOCK_SIZE or not
             if last_piece_length%(BLOCK_SIZE as u64) != 0 { 
-                piece_freq[piece_no-1].blocks.push((false, (last_piece_length as u64)%(BLOCK_SIZE as u64)));
+                piece_freq[piece_no-1].blocks.push(
+                    Block {
+                        is_req: false, 
+                        length: (last_piece_length as u64)%(BLOCK_SIZE as u64), 
+                        offset: 0
+                    }
+                );
             }
     
+        }
+
+        let mut curr: u64 = 0;
+
+        for piece in &mut piece_freq {
+            for block in &mut piece.blocks {
+                (*block).offset = curr;
+                curr += block.length;
+            }
         }
     
         piece_freq
