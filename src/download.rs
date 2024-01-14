@@ -3,7 +3,7 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
     os::unix::fs::FileExt,
     sync::Arc,
-    io::{Write, stdout}, collections::HashSet, time::Duration
+    io::{Write, stdout}, collections::{HashSet, LinkedList}, time::Duration
 };
 use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
 use sha1_smol::Sha1;
@@ -145,7 +145,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
 
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
-    let mut requested: HashSet<u32> = HashSet::new();
+    let mut requested: LinkedList<u32> = LinkedList::new();
     let mut piece_req: Option<usize> = None;
 
     loop {
@@ -227,8 +227,16 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                 let mut donwloaded = down_ref.lock().await;
                 *donwloaded += (msg.len() - 9) as u64;
 
-                let _begin = write_to_file(msg, file.clone(), piece_length);
-                // requested.remove(&begin);
+                let begin = write_to_file(msg, file.clone(), piece_length);
+                
+                for (i, el) in requested.iter().enumerate() {
+                    if *el == begin {
+                        let mut split = requested.split_off(i);
+                        split.pop_front();
+                        requested.append(&mut split);
+                        break;
+                    }
+                }
 
                 if requested.is_empty() {
                     if !verify_piece((*freq_ref.lock().await)[piece_req.unwrap()].length, file.clone(), &(*hashes)[piece_req.unwrap()], (*freq_ref.lock().await)[piece_req.unwrap()].blocks[0].offset) {
@@ -289,8 +297,7 @@ fn verify_piece(piece_length: u64, file: Arc<Vec<(File,u64)>>, hash: &Vec<u8>, o
         // Return false if error in reading
         match res {
             Ok(bytes) => { read += bytes; },
-            Err(e) => {
-                dbg!(e); 
+            Err(_) => {
                 return false; 
             }
         }
@@ -299,8 +306,6 @@ fn verify_piece(piece_length: u64, file: Arc<Vec<(File,u64)>>, hash: &Vec<u8>, o
     }
 
     if read != piece_length as usize {
-        dbg!(read);
-        dbg!(piece_length);
         return false;
     }
 
@@ -337,7 +342,7 @@ async fn get_length(stream: &mut TcpStream) -> Option<u32> {
     Some(ReadBytesExt::read_u32::<BigEndian>(&mut buf.as_ref()).unwrap())
 }
 
-async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, stream: &mut TcpStream, bitfield: &Vec<bool> ) -> (HashSet<u32>, Option<usize>) {
+async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, stream: &mut TcpStream, bitfield: &Vec<bool> ) -> (LinkedList<u32>, Option<usize>) {
 
     let mut to_req = None;
     let mut mn = u16::MAX;
@@ -361,7 +366,7 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
 
     }
 
-    let mut req: HashSet<u32> = HashSet::new();
+    let mut req = LinkedList::new();
     
     if to_req != None {
         
@@ -372,7 +377,7 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
             if (*freq_arr)[ind].blocks[j].is_req == false {
                 (*freq_arr)[ind].blocks[j].is_req = true;
                 stream.write(&Message::build_request(to_req.unwrap() as u32, j as u32, (*freq_arr)[ind].blocks[j].length as u32)).await.unwrap();
-                req.insert(j as u32);
+                req.push_back(j as u32);
             }
         }
     }
