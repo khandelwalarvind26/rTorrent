@@ -237,9 +237,9 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                         break;
                     }
                 }
-
+                
                 if requested.is_empty() {
-                    if !verify_piece((*freq_ref.lock().await)[piece_req.unwrap()].length, file.clone(), &(*hashes)[piece_req.unwrap()], (*freq_ref.lock().await)[piece_req.unwrap()].blocks[0].offset) {
+                    if !verify_piece(freq_ref.clone(), file.clone(), &(*hashes)[piece_req.unwrap()], piece_req.unwrap()).await {
                         println!("false");
                         let mut freq: tokio::sync::MutexGuard<'_, Vec<Piece>> = freq_ref.lock().await;
 
@@ -276,7 +276,11 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
 
 }
 
-fn verify_piece(piece_length: u64, file: Arc<Vec<(File,u64)>>, hash: &Vec<u8>, offset: u64) -> bool {
+async fn verify_piece(freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File,u64)>>, hash: &Vec<u8>, piece_req: usize) -> bool {
+
+    let freq = freq_ref.lock().await;
+    let piece_length: u64 = (*freq)[piece_req].length;
+    let offset = (*freq)[piece_req].blocks[0].offset;
 
     let mut buf = vec![0u8; piece_length as usize];
 
@@ -386,12 +390,13 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
 }
 
 fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, piece_length: u64) -> u32 {
+
     // piece
     let buf = &mut msg.as_mut_slice()[1..].as_ref();
     let index = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
     let begin = ReadBytesExt::read_u32::<BigEndian>(buf).unwrap();
     let offset = (index as u64)*piece_length + (begin as u64)*(BLOCK_SIZE as u64);
-
+    
     // Writing to file at different locations
     let mut ind: usize = 0;
     let mut length: u64 = 0;
