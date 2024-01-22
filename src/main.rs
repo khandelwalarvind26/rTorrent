@@ -1,10 +1,10 @@
 use std::{fs::{File, self, OpenOptions},env, sync::Arc, path::PathBuf};
 use r_torrent::{
-    torrent_parser::Torrent,
+    torrent_parser::{Torrent, Piece},
     download,
     tracker::get_peers
 };
-use tokio;
+use tokio::{sync::Mutex, time};
 
 #[tokio::main]
 async fn main() {
@@ -43,7 +43,6 @@ async fn main() {
     if torrent.file_list != None {
 
         // Create dir based on destination dir
-        // Substitute for create_dir_all in future
         fs::create_dir_all(&destination_dir).unwrap();
 
         // Create files inside that dir
@@ -62,6 +61,9 @@ async fn main() {
     let (announce_url, announce_list) = (torrent.announce_url, torrent.announce_list);
     (torrent.announce_url, torrent.announce_list) = (None, None);
     
+    let file_vec = Arc::new(file_vec);
+    verify_file(torrent.piece_freq.clone(), file_vec.clone(), torrent.piece_hashes.clone(), torrent.downloaded.clone()).await;
+
     // Get peers
     let h1 = get_peers(
         torrent.info_hash.clone(),
@@ -93,4 +95,29 @@ fn open_file(path: PathBuf) -> File {
         .create(true)
         .open(path)
         .unwrap() 
+}
+
+async fn verify_file(freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File,u64)>>, piece_hashes: Arc<Vec<Vec<u8>>>, downloaded: Arc<Mutex<u64>>) {
+
+    println!("Checking already downloaded");
+
+    let start = time::Instant::now();
+    let mut freq = freq_ref.lock().await;
+
+    let mut total: u64 = 0;
+    
+    for ind in 0..(*freq).len() {
+        if download::verify_piece((*freq)[ind].length, (*freq)[ind].blocks[0].offset, file.clone(), &(*piece_hashes)[ind]) {
+            for block in &mut (*freq)[ind].blocks {
+                (*block).is_req = true;
+            }
+            total += (*freq)[ind].length;
+        }
+    }
+    let mut download = downloaded.lock().await;
+    *download += total;
+    let elapsed = start.elapsed();
+
+    println!("Elapsed:{:.2?}\nChecked",elapsed);
+
 }
