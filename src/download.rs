@@ -411,7 +411,6 @@ async fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, freq_ref: 
 }
 
 pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<HashSet<(u32,u16)>>>) {
-    println!("Called");
     let mut stdout = stdout();
 
     stdout.execute(cursor::Hide).unwrap();
