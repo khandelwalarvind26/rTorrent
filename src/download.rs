@@ -20,11 +20,9 @@ use crate::{
     helpers::{self, BLOCK_SIZE, CONN_LIMIT, on_whole_msg}
 };
 
-pub async fn download_file(torrent: Torrent, file_vec: Vec<(File, u64)>) {    
+pub async fn download_file(torrent: Torrent, file_ref: Arc<Vec<(File, u64)>>) {    
 
     let mut handles = vec![];
-    let file_ref = Arc::new(file_vec);
-
     loop {
         if *(torrent.downloaded.lock().await) == torrent.length {
             break;
@@ -238,7 +236,12 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                 }
                 
                 if requested.is_empty() {
-                    if !verify_piece(freq_ref.clone(), file.clone(), &(*hashes)[piece_req.unwrap()], piece_req.unwrap()).await {
+
+                    let freq = freq_ref.lock().await;
+                    let piece_length = (*freq)[piece_req.unwrap()].length;
+                    let offset = (*freq)[piece_req.unwrap()].blocks[0].offset;
+                    
+                    if !verify_piece(piece_length, offset, file.clone(), &(*hashes)[piece_req.unwrap()]) {
                         let mut freq = freq_ref.lock().await;
 
                         for j in 0..(*freq)[piece_req.unwrap()].blocks.len() {
@@ -271,11 +274,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
 
 }
 
-async fn verify_piece(freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File,u64)>>, hash: &Vec<u8>, piece_req: usize) -> bool {
-
-    let freq = freq_ref.lock().await;
-    let piece_length: u64 = (*freq)[piece_req].length;
-    let offset = (*freq)[piece_req].blocks[0].offset;
+pub fn verify_piece(piece_length: u64, offset: u64, file: Arc<Vec<(File,u64)>>, hash: &Vec<u8>) -> bool {
 
     let mut buf = vec![0u8; piece_length as usize];
 
@@ -412,7 +411,7 @@ async fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, freq_ref: 
 }
 
 pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<HashSet<(u32,u16)>>>) {
-
+    println!("Called");
     let mut stdout = stdout();
 
     stdout.execute(cursor::Hide).unwrap();
