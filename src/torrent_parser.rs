@@ -1,7 +1,5 @@
 use std::{
-    collections::{VecDeque, HashSet},
-    sync::Arc,
-    {fmt,fs::File}
+    collections::{VecDeque, HashSet}, sync::Arc, {fmt,fs::File}
 };
 use tokio::sync::Mutex;
 use crate:: {
@@ -15,11 +13,9 @@ pub struct Torrent {
     pub name: String,
     pub length: u64,
     pub info_hash: [u8; 20],
-    pub piece_length: u64,
     pub peer_list: Arc<Mutex<VecDeque<(u32,u16)>>>,
     pub peer_id: [u8; 20],
     pub piece_freq: Arc<Mutex<Vec<Piece>>>,
-    pub no_blocks: u64,
     pub downloaded: Arc<Mutex<u64>>,
     pub connections: Arc<Mutex<HashSet<(u32,u16)>>>,
     pub file_list: Option<Vec<(String, u64)>>,
@@ -27,6 +23,7 @@ pub struct Torrent {
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct Piece {
     pub ref_no: u16,
     pub length: u64,
@@ -34,6 +31,7 @@ pub struct Piece {
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct Block {
     pub is_req: bool,
     pub length: u64,
@@ -56,11 +54,9 @@ impl Torrent {
             name, 
             length, 
             info_hash, 
-            piece_length, 
             peer_list: Arc::new(Mutex::new(VecDeque::new())), 
             peer_id: helpers::gen_random_id(), 
             piece_freq: Arc::new(Mutex::new(Torrent::build_piece_freq(no_blocks, piece_no, piece_length, length))),
-            no_blocks,
             downloaded: Arc::new(Mutex::new(0)),
             connections: Arc::new(Mutex::new(HashSet::new())),
             file_list,
