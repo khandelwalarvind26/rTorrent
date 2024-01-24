@@ -80,7 +80,6 @@ pub async fn download_file(torrent: Torrent, file_ref: Arc<Vec<(File, u64)>>) {
 async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Option<TcpStream> {
 
     let socket = SocketAddrV4::new(Ipv4Addr::from(peer.0),peer.1);
-    // dbg!("Connecting to ",socket);
     let res = timeout(tokio::time::Duration::from_secs(2),TcpStream::connect(socket)).await;
     match res {
 
@@ -88,19 +87,13 @@ async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Opt
             
             match socket {
                 Ok(stream) => {
-                    // dbg!("Connected");
                     handshake(stream, info_hash, peer_id).await
                 },
-                Err(_) => {
-                    // dbg!(e);
-                    None
-                }
+                Err(_) => { None }
             }
 
         },
-        _ => {
-            None
-        }
+        _ => { None }
     }
 
 }

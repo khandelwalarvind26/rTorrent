@@ -62,7 +62,7 @@ async fn main() {
     (torrent.announce_url, torrent.announce_list) = (None, None);
     
     let file_vec = Arc::new(file_vec);
-    verify_file(torrent.piece_freq.clone(), file_vec.clone(), torrent.piece_hashes.clone(), torrent.downloaded.clone()).await;
+    torrent.piece_freq = verify_file(torrent.piece_freq, file_vec.clone(), torrent.piece_hashes.clone(), torrent.downloaded.clone()).await;
 
     // Get peers
     let h1 = get_peers(
@@ -97,27 +97,52 @@ fn open_file(path: PathBuf) -> File {
         .unwrap() 
 }
 
-async fn verify_file(freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File,u64)>>, piece_hashes: Arc<Vec<Vec<u8>>>, downloaded: Arc<Mutex<u64>>) {
+async fn verify_file(freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File,u64)>>, piece_hashes: Arc<Vec<Vec<u8>>>, downloaded: Arc<Mutex<u64>>) -> Arc<Mutex<Vec<Piece>>>  {
 
     println!("Checking already downloaded");
 
     let start = time::Instant::now();
-    let mut freq = freq_ref.lock().await;
+    let freq = 
+        Box::new(
+            Arc::try_unwrap(freq_ref)
+            .unwrap()
+            .into_inner()
+        );
 
-    let mut total: u64 = 0;
+    // let mut total: u64 = 0;
+    let mut handles = Vec::new();
     
     for ind in 0..(*freq).len() {
-        if download::verify_piece((*freq)[ind].length, (*freq)[ind].blocks[0].offset, file.clone(), &(*piece_hashes)[ind]) {
-            for block in &mut (*freq)[ind].blocks {
-                (*block).is_req = true;
+
+        let mut ref1 = freq.clone();
+        let downloaded = downloaded.clone();
+        let (length, offset, file, hash) = ((*freq)[ind].length, (*freq)[ind].blocks[0].offset, file.clone(), (*piece_hashes)[ind].clone());
+
+        let h = tokio::spawn(async move {
+            if download::verify_piece(length, offset, file, &hash) {
+                for block in &mut (*ref1)[ind].blocks {
+                    (*block).is_req = true;
+                }
+                let mut download = downloaded.lock().await;
+                *download += (*ref1)[ind].length;
             }
-            total += (*freq)[ind].length;
-        }
+        });
+        handles.push(h);
     }
-    let mut download = downloaded.lock().await;
-    *download += total;
+
+    for handle in handles {
+        handle.await.unwrap();
+    }
+
+    let freq_ref = Arc::new(Mutex::new(
+        *freq
+    ));
+
+    
     let elapsed = start.elapsed();
 
     println!("Elapsed:{:.2?}\nChecked",elapsed);
+
+    freq_ref
 
 }
