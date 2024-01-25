@@ -2,6 +2,7 @@ use tokio::{net::TcpStream, time::timeout, io::AsyncReadExt};
 
 pub static BLOCK_SIZE: u32 = 16384; //2^14
 pub static CONN_LIMIT: u32 = 100;
+pub static QUEUE_LIMIT: u32 = 50;
 
 // Convert u8 value to String of hex value
 pub fn u8_to_hex(mut val: u8) -> String {
