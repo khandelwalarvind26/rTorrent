@@ -88,8 +88,12 @@ impl Message {
         Message::Uninterested { length: 1, id: 3 }
     }
 
-    fn build_have(piece_index:u32 ) -> Message {
-        Message::Have { length: 5, id: 4, piece_index }
+    fn build_have(piece_index:u32 ) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.write_u32::<BigEndian>(5).unwrap();
+        buf.write_u8(4).unwrap();
+        buf.write_u32::<BigEndian>(piece_index).unwrap();
+        buf
     }
 
     fn build_bitfield(bitfield: Vec<u8>) -> Message {

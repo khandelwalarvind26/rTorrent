@@ -36,10 +36,10 @@ pub async fn download_file(torrent: Torrent, file_ref: Arc<Vec<(File, u64)>>) {
             let mut q = torrent.peer_list.lock().await;
             let peer = (*q).pop_front().unwrap();
 
-            let freq_ref:Arc<Mutex<Vec<Piece>>>  = Arc::clone(&torrent.piece_freq);
-            let file_ref = Arc::clone(&file_ref);
-            let down_ref = Arc::clone(&torrent.downloaded);
-            let conn_ref = Arc::clone(&torrent.connections);
+            let freq_ref:Arc<Mutex<Vec<Piece>>>  = torrent.piece_freq.clone();
+            let file_ref = file_ref.clone();
+            let down_ref = torrent.downloaded.clone();
+            let conn_ref = torrent.connections.clone();
             let hashes = torrent.piece_hashes.clone();
 
             if (*(conn_ref.lock().await)).contains(&peer) {

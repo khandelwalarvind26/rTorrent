@@ -70,14 +70,15 @@ async fn main() {
         torrent.length.clone(),
         torrent.peer_id.clone(),
         announce_url,
-        Arc::clone(&torrent.peer_list),
+        torrent.peer_list.clone(),
         announce_list,
-        torrent.connections.clone()
+        torrent.connections.clone(),
+        torrent.downloaded.clone()
     );
 
 
     // Display function for downloading
-    let h2 = download::download_print(Arc::clone(&torrent.downloaded), torrent.length.clone(), Arc::clone(&torrent.connections));
+    let h2 = download::download_print(torrent.downloaded.clone(), torrent.length.clone(), torrent.connections.clone());
 
 
     // Download torrent
