@@ -49,7 +49,7 @@ mod udp_tracker {
 
     struct Response {
         _action: u32,
-        _transaction_id: u32,
+        transaction_id: u32,
         _interval: u32,
         _leechers: u32,
         seeders: u32,
@@ -57,7 +57,7 @@ mod udp_tracker {
     }
 
     // Function to build a request for announce
-    fn build_announce_req(conn_id: u64, info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20] ) -> Vec<u8> {
+    fn build_announce_req(conn_id: u64, info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], downloaded: u64, port: u16) -> (Vec<u8>, u32) {
 
         let req = Request {
             connection_id: conn_id,
@@ -65,21 +65,21 @@ mod udp_tracker {
             transaction_id: rand::random(),
             info_hash: info_hash.clone(),
             peer_id: *peer_id,
-            downloaded: 0,
+            downloaded,
             left: *length,
             uploaded: 0,
             event: 0,
             ip_addr: 0,
             key: rand::random(),
             num_want: -1,
-            port: 6881 // 6881 - 6889
+            port // 6881 - 6889
         };
 
-        req.to_buf()
+        (req.to_buf(), req.transaction_id)
     }
 
     // Return Initial Connection request buffer
-    fn build_connection_req() -> Vec<u8> {
+    fn build_connection_req() -> (Vec<u8>, u32) {
 
         let mut buf:Vec<u8> = Vec::new();
 
@@ -93,7 +93,7 @@ mod udp_tracker {
         let transaction_id: u32 = rand::random();
         buf.write_u32::<BigEndian>(transaction_id).unwrap();
 
-        buf
+        (buf, transaction_id)
 
     }
 
@@ -127,7 +127,7 @@ mod udp_tracker {
 
         let mut parsed = Response { 
             _action: buf.read_u32::<BigEndian>().unwrap(),
-            _transaction_id: buf.read_u32::<BigEndian>().unwrap(), 
+            transaction_id: buf.read_u32::<BigEndian>().unwrap(), 
             _interval:buf.read_u32::<BigEndian>().unwrap(),
             _leechers: buf.read_u32::<BigEndian>().unwrap(), 
             seeders: buf.read_u32::<BigEndian>().unwrap(),
@@ -144,73 +144,67 @@ mod udp_tracker {
 
     }
 
-    pub async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32 ) -> Option<Vec<(u32,u16)>> {
+    pub async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u16, downloaded: u64) -> Option<Vec<(u32,u16)>> {
 
         let (remote_addr, _path) = parse_url(announce_url);
 
 
         // Connect to remote addr
-        let socket = UdpSocket::bind("0.0.0.0:".to_string() + &port.to_string()).await.unwrap();
+        let socket = UdpSocket::bind("0.0.0.0:".to_string() + "0").await.unwrap();
 
-        if let Ok(()) = socket.connect(&remote_addr).await {
-            // println!("Connected to {remote_addr}");
-        }
+        if let Ok(()) = socket.connect(&remote_addr).await { }
         else {
             return None;
         }
 
         let mut res:[u8; 16] = [0; 16];
-        let connect_request = build_connection_req();
+        let (connect_request, connect_transaction_id) = build_connection_req();
         
 
         // Send Connection request
-        if let Ok(_) = socket.send(&connect_request).await {
-            // println!("Connection request sent");
-        }
+        if let Ok(_) = socket.send(&connect_request).await { }
         else {
-            // println!("Unable to send connection request");
             return None;
         }
 
         // Recieve intital response
         if let Ok(bytes_read) = timeout(tokio::time::Duration::from_secs(6),socket.recv(&mut res)).await {
             
-            if let Ok(_) = bytes_read {
-                // println!("Initial Response recieved {b}");
-            }
+            if let Ok(_) = bytes_read { }
             else {
-                // println!("Connection request refused");
                 return None;
             }
 
         }
         else {
-            // println!("Response not recieved");
             return None;
         }
 
         // Parse Initial Response
-        let (_, _, connection_id) = parse_connection_resp(&res);
+        let (_, transaction_id, connection_id) = parse_connection_resp(&res);
+
+        if transaction_id != connect_transaction_id {
+            return None;
+        }
         
         let mut res = [0; 8192];
-        let announce_req = build_announce_req(connection_id, info_hash, length, peer_id);
+        let (announce_req, announce_transaction_id) = build_announce_req(connection_id, info_hash, length, peer_id, downloaded, port);
         
         for t in 0..8 {
             // Make announce request
             socket.send(&announce_req).await.unwrap();
-            // println!("Announce request sent {t}th time");
-
-            // Recieve Announce Response
-            // println!("Waiting for Response");
+            
             if let Ok(_) = timeout(tokio::time::Duration::from_secs((2u64.pow(t)) * 15),socket.recv(&mut res)).await {
-                // println!("Announce Response recieved {}",bytes_read.unwrap());
                 break;
             }
         }
         
-        
         // Parse Announce Response
         let resp = parse_announce_resp(&mut res);
+
+        if resp.transaction_id != announce_transaction_id {
+            return None;
+        }
 
         Some(resp.peer_list)
 
@@ -229,7 +223,7 @@ mod http_tracker {
         bencoded_parser::Bencode
     };
 
-    fn url_parser(info_hash: [u8; 20], peer_id:[u8;20], announce_url: String, port: u32, uploaded: u64, downloaded: u64, left: u64, compact: bool, event: &str, numwant: Option<u64>) -> String {
+    fn url_parser(info_hash: [u8; 20], peer_id:[u8;20], announce_url: String, port: u16, uploaded: u64, downloaded: u64, left: u64, compact: bool, event: &str, numwant: Option<u64>) -> String {
         let mut ret = announce_url + "?" +
             "info_hash=" + &u8_to_url(info_hash.to_owned()) + 
             "&peer_id=" + &u8_to_url(peer_id.to_owned()) + 
@@ -245,7 +239,7 @@ mod http_tracker {
         ret
     }
 
-    pub async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32, downloaded: u64) -> Vec<(u32,u16)> {
+    pub async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u16, downloaded: u64) -> Vec<(u32,u16)> {
         
         let request = url_parser(info_hash.to_owned(), peer_id.to_owned(), announce_url, port, 0, downloaded, length.to_owned() - downloaded, true, "started", Some(50));
         
@@ -285,14 +279,16 @@ mod http_tracker {
     }
 }
 
-async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u32, tor_ref: Arc<Mutex<VecDeque<(u32,u16)>>> ) {
+async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], announce_url: String, port: u16, tor_ref: Arc<Mutex<VecDeque<(u32,u16)>>>, downloaded: Arc<Mutex<u64>>) {
 
     let mut res = None;
+    let download = *downloaded.lock().await;
+
     if announce_url[0..=5].as_bytes() == "udp://".as_bytes() {
-        res = udp_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port).await;
+        res = udp_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port, download).await;
     }
     else if announce_url[0..4].as_bytes() == "http".as_bytes() {
-        res = Some(http_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port, 0).await);
+        res = Some(http_tracker::peer_list_helper(info_hash, length, peer_id, announce_url, port, download).await);
     }
 
     if let Some(peers) = res {
@@ -306,23 +302,24 @@ async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], 
 }
 
 // Function to get peer list
-pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], announce_url: Option<String>, peer_list: Arc<Mutex<VecDeque<(u32, u16)>>>, announce_list: Option<Vec<String>>, connections: Arc<Mutex<HashSet<(u32,u16)>>>) {
+pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], announce_url: Option<String>, peer_list: Arc<Mutex<VecDeque<(u32, u16)>>>, announce_list: Option<Vec<String>>, connections: Arc<Mutex<HashSet<(u32,u16)>>>, downloaded: Arc<Mutex<u64>>) {
 
     loop {
 
         while (*(connections.lock().await)).len() as u32 >= CONN_LIMIT || !peer_list.lock().await.is_empty() {}
 
         // Create udp socket
-        let mut port: u32 = 6881;
+        let mut port: u16 = 6881;
         let mut handles = vec![];
 
         // Check for announce_url and announce_list
         if let Some(announce_url) = announce_url.clone() {
             
-            let tor_ref: Arc<Mutex<VecDeque<(u32, u16)>>> = Arc::clone(&peer_list);
+            let tor_ref = peer_list.clone();
+            let downloaded = downloaded.clone();
 
             let h = tokio::spawn(async move{
-                peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref).await;
+                peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref, downloaded).await;
             });   
 
             handles.push(h);
@@ -334,10 +331,11 @@ pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], annou
 
             for announce_url in announce_list {
                 
-                let tor_ref = Arc::clone(&peer_list);
+                let tor_ref = peer_list.clone();
+                let downloaded = downloaded.clone();
 
                 let h = tokio::spawn(async move{
-                    peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref).await;
+                    peer_list_helper(&info_hash, &length, &peer_id, announce_url, port, tor_ref, downloaded).await;
                 });   
 
                 handles.push(h);

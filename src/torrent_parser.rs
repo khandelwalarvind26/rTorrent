@@ -17,6 +17,7 @@ pub struct Torrent {
     pub peer_id: [u8; 20],
     pub piece_freq: Arc<Mutex<Vec<Piece>>>,
     pub downloaded: Arc<Mutex<u64>>,
+    pub uploaded: Arc<Mutex<u64>>,
     pub connections: Arc<Mutex<HashSet<(u32,u16)>>>,
     pub file_list: Option<Vec<(String, u64)>>,
     pub piece_hashes: Arc<Vec<Vec<u8>>>
@@ -58,6 +59,7 @@ impl Torrent {
             peer_id: helpers::gen_random_id(), 
             piece_freq: Arc::new(Mutex::new(Torrent::build_piece_freq(no_blocks, piece_no, piece_length, length))),
             downloaded: Arc::new(Mutex::new(0)),
+            uploaded: Arc::new(Mutex::new(0)),
             connections: Arc::new(Mutex::new(HashSet::new())),
             file_list,
             piece_hashes: Arc::new(hashes)
