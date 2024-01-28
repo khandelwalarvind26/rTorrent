@@ -24,7 +24,7 @@ pub async fn download_file(torrent: Torrent, file_ref: Arc<Vec<(File, u64)>>) {
 
     let mut handles = vec![];
     loop {
-        if *(torrent.downloaded.lock().await) == torrent.length {
+        if *(torrent.piece_left.lock().await) == 0 {
             break;
         }
 
@@ -36,11 +36,12 @@ pub async fn download_file(torrent: Torrent, file_ref: Arc<Vec<(File, u64)>>) {
             let mut q = torrent.peer_list.lock().await;
             let peer = (*q).pop_front().unwrap();
 
-            let freq_ref:Arc<Mutex<Vec<Piece>>>  = torrent.piece_freq.clone();
+            let freq_ref  = torrent.piece_freq.clone();
             let file_ref = file_ref.clone();
             let down_ref = torrent.downloaded.clone();
             let conn_ref = torrent.connections.clone();
             let hashes = torrent.piece_hashes.clone();
+            let left = torrent.piece_left.clone();
 
             if (*(conn_ref.lock().await)).contains(&peer) {
                 continue;
@@ -54,7 +55,7 @@ pub async fn download_file(torrent: Torrent, file_ref: Arc<Vec<(File, u64)>>) {
                         let mut connections = conn_ref.lock().await;
                         (*connections).insert(peer);
                     }
-                    handle_connection(stream, freq_ref, file_ref, down_ref, hashes).await;
+                    handle_connection(stream, freq_ref, file_ref, down_ref, hashes, left).await;
                     {
                         let mut connections = conn_ref.lock().await;
                         (*connections).remove(&peer);
@@ -131,7 +132,7 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 
 }
 
-async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File, u64)>>, down_ref: Arc<Mutex<u64>>, hashes: Arc<Vec<Vec<u8>>>) {
+async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File, u64)>>, down_ref: Arc<Mutex<u64>>, hashes: Arc<Vec<Vec<u8>>>, piece_left: Arc<Mutex<u16>>) {
 
     let mut bitfield = vec![false; (*(freq_ref.lock().await)).len()];
     let mut choke = true;
@@ -248,9 +249,18 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                     if !verify_piece(piece_length, offset, file.clone(), &(*hashes)[piece_req.unwrap()]) {
                         let mut freq = freq_ref.lock().await;
 
-                        for j in 0..(*freq)[piece_req.unwrap()].blocks.len() {
-                            (*freq)[piece_req.unwrap()].blocks[j].is_req = false;
+                        for block in &mut (*freq)[piece_req.unwrap()].blocks {
+                            block.is_req = false;
                         }
+                    }
+                    else {
+
+                        let mut freq = freq_ref.lock().await;
+                        (*freq)[piece_req.unwrap()].completed = true;
+                        
+                        let mut left = piece_left.lock().await;
+                        *left -= 1;
+                        
                     }
 
                 }
@@ -270,7 +280,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
         if !choke && requested.is_empty() {
 
             (requested, piece_req) = make_request(freq_ref.lock().await, &mut stream, &bitfield).await;
-            if requested.is_empty() {return;}
+            if piece_req == None {return;}
 
         }
 
@@ -348,15 +358,15 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
     let mut mn = u16::MAX;
 
     // Find piece with minimum nodes
-    for i in 0..(*freq_arr).len() {
-        if bitfield[i] && (*freq_arr)[i].ref_no < mn {
+    for (i, piece) in (*freq_arr).iter_mut().enumerate() {
+        if bitfield[i] && piece.ref_no < mn && piece.completed == false {
 
-            for j in 0..(*freq_arr)[i].blocks.len() {
+            for block in piece.blocks.iter() {
 
-                if (*freq_arr)[i].blocks[j].is_req == false {
+                if block.is_req == false {
 
                     to_req = Some(i);
-                    mn = (*freq_arr)[i].ref_no;
+                    mn = piece.ref_no;
                     break;
 
                 }
@@ -372,11 +382,15 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
         
         let ind = to_req.unwrap();
 
-        let len = (*freq_arr)[ind].blocks.len();
-        for j in 0..len {
-            if (*freq_arr)[ind].blocks[j].is_req == false {
-                (*freq_arr)[ind].blocks[j].is_req = true;
-                stream.write(&Message::build_request(to_req.unwrap() as u32, (j as u32)*BLOCK_SIZE, (*freq_arr)[ind].blocks[j].length as u32)).await.unwrap();
+        for (j, block) in (*freq_arr)[ind].blocks.iter_mut().enumerate() {
+            if block.is_req == false {
+                block.is_req = true;
+                let res = stream.write(&Message::build_request(ind as u32, (j as u32)*BLOCK_SIZE, block.length as u32)).await;
+
+                if let Err(_) = res {
+                    return (req, None);
+                }
+
                 req.push_back(j as u32);
             }
         }
@@ -414,7 +428,7 @@ async fn write_to_file(mut msg: Vec<u8>, file: Arc<Vec<(File, u64)>>, freq_ref: 
     begin
 }
 
-pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connections: Arc<Mutex<HashSet<(u32,u16)>>>) {
+pub async fn download_print(downloaded: Arc<Mutex<u64>>, connections: Arc<Mutex<HashSet<(u32,u16)>>>, piece_left: Arc<Mutex<u16>>) {
     let mut stdout = stdout();
 
     stdout.execute(cursor::Hide).unwrap();
@@ -422,17 +436,26 @@ pub async fn download_print(downloaded: Arc<Mutex<u64>>, length: u64, connection
     let mut last = 0;
 
     loop {
-        let now = *(downloaded.lock().await);
-        let connections = (*(connections.lock().await)).len();
-        if now == length {
+
+        let now; 
+        let connection: usize; 
+        let left;
+        {
+            now = *(downloaded.lock().await);
+            connection = (*(connections.lock().await)).len();
+            left = *(piece_left.lock().await);
+        }
+
+        if left == 0 {
             break;
         }
+
         let tot = (now as f64) / (1048756 as f64);
         let speed = ((now - last) as f64) / ((1048756*3) as f64);
         
-        stdout.write_all(format!("\rDownloaded: {:.2} MB\nSpeed: {:.2} MB/s\nConnections: {}/{}", tot, speed, connections, CONN_LIMIT).as_bytes()).unwrap();
+        stdout.write_all(format!("\rDownloaded: {:.2} MB\nSpeed: {:.2} MB/s\nConnections: {}/{}\nPieces Left: {}", tot, speed, connection, CONN_LIMIT, left).as_bytes()).unwrap();
         
-        stdout.execute(cursor::MoveUp(2)).unwrap();
+        stdout.execute(cursor::MoveUp(3)).unwrap();
         stdout.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
         last = now;
         sleep(time::Duration::from_secs(3)).await;

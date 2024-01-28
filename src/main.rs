@@ -62,8 +62,8 @@ async fn main() {
     (torrent.announce_url, torrent.announce_list) = (None, None);
     
     let file_vec = Arc::new(file_vec);
-    torrent.piece_freq = verify_file(torrent.piece_freq, file_vec.clone(), torrent.piece_hashes.clone(), torrent.downloaded.clone()).await;
-
+    verify_file(torrent.piece_freq.clone(), file_vec.clone(), torrent.piece_hashes.clone(), torrent.downloaded.clone(), torrent.piece_left.clone()).await;
+    
     // Get peers
     let h1 = get_peers(
         torrent.info_hash.clone(),
@@ -73,12 +73,13 @@ async fn main() {
         torrent.peer_list.clone(),
         announce_list,
         torrent.connections.clone(),
-        torrent.downloaded.clone()
+        torrent.downloaded.clone(),
+        torrent.piece_left.clone()
     );
 
 
     // Display function for downloading
-    let h2 = download::download_print(torrent.downloaded.clone(), torrent.length.clone(), torrent.connections.clone());
+    let h2 = download::download_print(torrent.downloaded.clone(), torrent.connections.clone(), torrent.piece_left.clone());
 
 
     // Download torrent
@@ -98,34 +99,38 @@ fn open_file(path: PathBuf) -> File {
         .unwrap() 
 }
 
-async fn verify_file(freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File,u64)>>, piece_hashes: Arc<Vec<Vec<u8>>>, downloaded: Arc<Mutex<u64>>) -> Arc<Mutex<Vec<Piece>>>  {
+async fn verify_file(freq_ref: Arc<Mutex<Vec<Piece>>>, file_ref: Arc<Vec<(File,u64)>>, piece_hashes: Arc<Vec<Vec<u8>>>, downloaded: Arc<Mutex<u64>>, piece_left: Arc<Mutex<u16>>)  {
 
     println!("Checking already downloaded");
 
     let start = time::Instant::now();
-    let freq = 
-        Box::new(
-            Arc::try_unwrap(freq_ref)
-            .unwrap()
-            .into_inner()
-        );
+    let len = (*freq_ref.lock().await).len();
 
     // let mut total: u64 = 0;
     let mut handles = Vec::new();
     
-    for ind in 0..(*freq).len() {
+    for ind in 0..len {
 
-        let mut ref1 = freq.clone();
-        let downloaded = downloaded.clone();
-        let (length, offset, file, hash) = ((*freq)[ind].length, (*freq)[ind].blocks[0].offset, file.clone(), (*piece_hashes)[ind].clone());
+        let freq = freq_ref.clone();
+        let (downloaded, piece_left) = (downloaded.clone(), piece_left.clone());
+        let (length, offset, file, hash);
+        {
+            let ref1 = freq.lock().await;
+            (length, offset, file, hash) = ((*ref1)[ind].length, (*ref1)[ind].blocks[0].offset, file_ref.clone(), (*piece_hashes)[ind].clone())
+        }
 
         let h = tokio::spawn(async move {
+
             if download::verify_piece(length, offset, file, &hash) {
-                for block in &mut (*ref1)[ind].blocks {
-                    (*block).is_req = true;
-                }
+
+                let mut ref1 = freq.lock().await;
+                (*ref1)[ind].completed = true;
+
                 let mut download = downloaded.lock().await;
                 *download += (*ref1)[ind].length;
+
+                let mut left = piece_left.lock().await;
+                *left -= 1;
             }
         });
         handles.push(h);
@@ -134,16 +139,9 @@ async fn verify_file(freq_ref: Arc<Mutex<Vec<Piece>>>, file: Arc<Vec<(File,u64)>
     for handle in handles {
         handle.await.unwrap();
     }
-
-    let freq_ref = Arc::new(Mutex::new(
-        *freq
-    ));
-
     
     let elapsed = start.elapsed();
 
-    println!("Elapsed:{:.2?}\nChecked",elapsed);
-
-    freq_ref
+    println!("Elapsed:{:.2?}\n",elapsed);
 
 }

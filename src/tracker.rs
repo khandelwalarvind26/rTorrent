@@ -1,4 +1,4 @@
-use std::{sync::Arc, collections::{VecDeque, HashSet}};
+use std::{collections::{VecDeque, HashSet}, sync::Arc};
 use tokio::{sync::Mutex, time::{sleep, self}};
 use crate::helpers::CONN_LIMIT;
 
@@ -302,9 +302,12 @@ async fn peer_list_helper(info_hash: &[u8; 20], length: &u64, peer_id:&[u8;20], 
 }
 
 // Function to get peer list
-pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], announce_url: Option<String>, peer_list: Arc<Mutex<VecDeque<(u32, u16)>>>, announce_list: Option<Vec<String>>, connections: Arc<Mutex<HashSet<(u32,u16)>>>, downloaded: Arc<Mutex<u64>>) {
+pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], announce_url: Option<String>, peer_list: Arc<Mutex<VecDeque<(u32, u16)>>>, announce_list: Option<Vec<String>>, connections: Arc<Mutex<HashSet<(u32,u16)>>>, downloaded: Arc<Mutex<u64>>, piece_left: Arc<Mutex<u16>>) {
 
     loop {
+        if *(piece_left.lock().await) == 0 {
+            break;
+        }
 
         while (*(connections.lock().await)).len() as u32 >= CONN_LIMIT || !peer_list.lock().await.is_empty() {}
 

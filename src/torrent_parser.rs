@@ -20,7 +20,8 @@ pub struct Torrent {
     pub uploaded: Arc<Mutex<u64>>,
     pub connections: Arc<Mutex<HashSet<(u32,u16)>>>,
     pub file_list: Option<Vec<(String, u64)>>,
-    pub piece_hashes: Arc<Vec<Vec<u8>>>
+    pub piece_hashes: Arc<Vec<Vec<u8>>>,
+    pub piece_left: Arc<Mutex<u16>>
 }
 
 #[derive(Clone)]
@@ -29,6 +30,7 @@ pub struct Piece {
     pub ref_no: u16,
     pub length: u64,
     pub blocks: Vec<Block>,
+    pub completed: bool
 }
 
 #[derive(Clone)]
@@ -62,7 +64,8 @@ impl Torrent {
             uploaded: Arc::new(Mutex::new(0)),
             connections: Arc::new(Mutex::new(HashSet::new())),
             file_list,
-            piece_hashes: Arc::new(hashes)
+            piece_hashes: Arc::new(hashes),
+            piece_left: Arc::new(Mutex::new(piece_no as u16))
         };
 
         Ok(torrent)
@@ -196,15 +199,16 @@ impl Torrent {
                             offset: 0
                         }; 
                         no_blocks as usize
-                    ]
+                    ],
+                completed: false
             };
             piece_no
         ];
         
         // Check whether pieces can be perfectly divided into blocks or last block of piece should be lesser in size
         if piece_length%(BLOCK_SIZE as u64) != 0 {
-            for i in 0..piece_no {
-                piece_freq[i].blocks.last_mut().unwrap().length = piece_length%(BLOCK_SIZE as u64);
+            for piece in &mut piece_freq {
+                piece.blocks.last_mut().unwrap().length = piece_length%(BLOCK_SIZE as u64);
             }
         }
         
@@ -216,13 +220,13 @@ impl Torrent {
 
             let last_piece_block_no = last_piece_length/(BLOCK_SIZE as u64);
 
-            while piece_freq[piece_no - 1].blocks.len() != last_piece_block_no as usize {
-                piece_freq[piece_no - 1].blocks.pop();
+            while piece_freq.last().unwrap().blocks.len() != last_piece_block_no as usize {
+                piece_freq.last_mut().unwrap().blocks.pop();
             }
             
             // Check whether last pieces last block is of BLOCK_SIZE or not
             if last_piece_length%(BLOCK_SIZE as u64) != 0 { 
-                piece_freq[piece_no-1].blocks.push(
+                piece_freq.last_mut().unwrap().blocks.push(
                     Block {
                         is_req: false, 
                         length: (last_piece_length as u64)%(BLOCK_SIZE as u64), 
