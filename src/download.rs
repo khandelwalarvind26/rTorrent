@@ -36,7 +36,7 @@ pub async fn download_file(torrent: Torrent, file_ref: Arc<Vec<(File, u64)>>) {
             let mut q = torrent.peer_list.lock().await;
             let peer = (*q).pop_front().unwrap();
 
-            let freq_ref:Arc<Mutex<Vec<Piece>>>  = torrent.piece_freq.clone();
+            let freq_ref  = torrent.piece_freq.clone();
             let file_ref = file_ref.clone();
             let down_ref = torrent.downloaded.clone();
             let conn_ref = torrent.connections.clone();
@@ -254,11 +254,13 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                         }
                     }
                     else {
+
                         let mut freq = freq_ref.lock().await;
                         (*freq)[piece_req.unwrap()].completed = true;
-                        dbg!(&piece_req);
+                        
                         let mut left = piece_left.lock().await;
                         *left -= 1;
+                        
                     }
 
                 }
@@ -384,7 +386,7 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
         for j in 0..len {
             if (*freq_arr)[ind].blocks[j].is_req == false {
                 (*freq_arr)[ind].blocks[j].is_req = true;
-                let res = stream.write(&Message::build_request(to_req.unwrap() as u32, (j as u32)*BLOCK_SIZE, (*freq_arr)[ind].blocks[j].length as u32)).await;
+                let res = stream.write(&Message::build_request(ind as u32, (j as u32)*BLOCK_SIZE, (*freq_arr)[ind].blocks[j].length as u32)).await;
 
                 if let Err(_) = res {
                     return (req, None);
