@@ -237,9 +237,13 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                 
                 if requested.is_empty() {
 
-                    let freq = freq_ref.lock().await;
-                    let piece_length = (*freq)[piece_req.unwrap()].length;
-                    let offset = (*freq)[piece_req.unwrap()].blocks[0].offset;
+                    let piece_length;
+                    let offset;
+                    {
+                        let freq = freq_ref.lock().await;
+                        piece_length = (*freq)[piece_req.unwrap()].length;
+                        offset = (*freq)[piece_req.unwrap()].blocks[0].offset;
+                    }
                     
                     if !verify_piece(piece_length, offset, file.clone(), &(*hashes)[piece_req.unwrap()]) {
                         let mut freq = freq_ref.lock().await;
