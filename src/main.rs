@@ -139,12 +139,9 @@ async fn verify_file(freq_ref: Arc<Mutex<Vec<Piece>>>, file_ref: Arc<Vec<(File,u
     for handle in handles {
         handle.await.unwrap();
     }
-
-    let left = piece_left.lock().await;
-    println!("{}", *left);
     
     let elapsed = start.elapsed();
 
-    println!("Elapsed:{:.2?}\nChecked",elapsed);
+    println!("Elapsed:{:.2?}\n",elapsed);
 
 }

@@ -1,4 +1,4 @@
-use std::{collections::{VecDeque, HashSet}, sync::Arc, time::Duration};
+use std::{collections::{VecDeque, HashSet}, sync::Arc};
 use tokio::{sync::Mutex, time::{sleep, self}};
 use crate::helpers::CONN_LIMIT;
 
@@ -309,9 +309,7 @@ pub async fn get_peers(info_hash: [u8; 20], length: u64, peer_id: [u8;20], annou
             break;
         }
 
-        while (*(connections.lock().await)).len() as u32 >= CONN_LIMIT || !peer_list.lock().await.is_empty() {
-            sleep(Duration::from_millis(1000)).await;
-        }
+        while (*(connections.lock().await)).len() as u32 >= CONN_LIMIT || !peer_list.lock().await.is_empty() {}
 
         // Create udp socket
         let mut port: u16 = 6881;
