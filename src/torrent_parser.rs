@@ -20,7 +20,8 @@ pub struct Torrent {
     pub uploaded: Arc<Mutex<u64>>,
     pub connections: Arc<Mutex<HashSet<(u32,u16)>>>,
     pub file_list: Option<Vec<(String, u64)>>,
-    pub piece_hashes: Arc<Vec<Vec<u8>>>
+    pub piece_hashes: Arc<Vec<Vec<u8>>>,
+    pub piece_left: Arc<Mutex<u16>>
 }
 
 #[derive(Clone)]
@@ -29,6 +30,7 @@ pub struct Piece {
     pub ref_no: u16,
     pub length: u64,
     pub blocks: Vec<Block>,
+    pub completed: bool
 }
 
 #[derive(Clone)]
@@ -62,7 +64,8 @@ impl Torrent {
             uploaded: Arc::new(Mutex::new(0)),
             connections: Arc::new(Mutex::new(HashSet::new())),
             file_list,
-            piece_hashes: Arc::new(hashes)
+            piece_hashes: Arc::new(hashes),
+            piece_left: Arc::new(Mutex::new(piece_no as u16))
         };
 
         Ok(torrent)
@@ -196,7 +199,8 @@ impl Torrent {
                             offset: 0
                         }; 
                         no_blocks as usize
-                    ]
+                    ],
+                completed: false
             };
             piece_no
         ];
