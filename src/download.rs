@@ -249,8 +249,8 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                     if !verify_piece(piece_length, offset, file.clone(), &(*hashes)[piece_req.unwrap()]) {
                         let mut freq = freq_ref.lock().await;
 
-                        for j in 0..(*freq)[piece_req.unwrap()].blocks.len() {
-                            (*freq)[piece_req.unwrap()].blocks[j].is_req = false;
+                        for block in &mut (*freq)[piece_req.unwrap()].blocks {
+                            block.is_req = false;
                         }
                     }
                     else {
@@ -358,15 +358,15 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
     let mut mn = u16::MAX;
 
     // Find piece with minimum nodes
-    for i in 0..(*freq_arr).len() {
-        if bitfield[i] && (*freq_arr)[i].ref_no < mn && (*freq_arr)[i].completed == false {
+    for (i, piece) in (*freq_arr).iter_mut().enumerate() {
+        if bitfield[i] && piece.ref_no < mn && piece.completed == false {
 
-            for j in 0..(*freq_arr)[i].blocks.len() {
+            for block in piece.blocks.iter() {
 
-                if (*freq_arr)[i].blocks[j].is_req == false {
+                if block.is_req == false {
 
                     to_req = Some(i);
-                    mn = (*freq_arr)[i].ref_no;
+                    mn = piece.ref_no;
                     break;
 
                 }
@@ -382,11 +382,10 @@ async fn make_request(mut freq_arr: tokio::sync::MutexGuard<'_, Vec<Piece>>, str
         
         let ind = to_req.unwrap();
 
-        let len = (*freq_arr)[ind].blocks.len();
-        for j in 0..len {
-            if (*freq_arr)[ind].blocks[j].is_req == false {
-                (*freq_arr)[ind].blocks[j].is_req = true;
-                let res = stream.write(&Message::build_request(ind as u32, (j as u32)*BLOCK_SIZE, (*freq_arr)[ind].blocks[j].length as u32)).await;
+        for (j, block) in (*freq_arr)[ind].blocks.iter_mut().enumerate() {
+            if block.is_req == false {
+                block.is_req = true;
+                let res = stream.write(&Message::build_request(ind as u32, (j as u32)*BLOCK_SIZE, block.length as u32)).await;
 
                 if let Err(_) = res {
                     return (req, None);

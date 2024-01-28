@@ -207,8 +207,8 @@ impl Torrent {
         
         // Check whether pieces can be perfectly divided into blocks or last block of piece should be lesser in size
         if piece_length%(BLOCK_SIZE as u64) != 0 {
-            for i in 0..piece_no {
-                piece_freq[i].blocks.last_mut().unwrap().length = piece_length%(BLOCK_SIZE as u64);
+            for piece in &mut piece_freq {
+                piece.blocks.last_mut().unwrap().length = piece_length%(BLOCK_SIZE as u64);
             }
         }
         
@@ -220,13 +220,13 @@ impl Torrent {
 
             let last_piece_block_no = last_piece_length/(BLOCK_SIZE as u64);
 
-            while piece_freq[piece_no - 1].blocks.len() != last_piece_block_no as usize {
-                piece_freq[piece_no - 1].blocks.pop();
+            while piece_freq.last().unwrap().blocks.len() != last_piece_block_no as usize {
+                piece_freq.last_mut().unwrap().blocks.pop();
             }
             
             // Check whether last pieces last block is of BLOCK_SIZE or not
             if last_piece_length%(BLOCK_SIZE as u64) != 0 { 
-                piece_freq[piece_no-1].blocks.push(
+                piece_freq.last_mut().unwrap().blocks.push(
                     Block {
                         is_req: false, 
                         length: (last_piece_length as u64)%(BLOCK_SIZE as u64), 
