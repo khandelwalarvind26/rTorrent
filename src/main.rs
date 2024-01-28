@@ -131,8 +131,6 @@ async fn verify_file(freq_ref: Arc<Mutex<Vec<Piece>>>, file_ref: Arc<Vec<(File,u
 
                 let mut left = piece_left.lock().await;
                 *left -= 1;
-
-                dbg!(ind);
             }
         });
         handles.push(h);
