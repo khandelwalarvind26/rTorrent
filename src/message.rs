@@ -1,5 +1,7 @@
 use byteorder::{WriteBytesExt, BigEndian, ReadBytesExt};
 
+use crate::helpers::bin_to_u8;
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum Message {
@@ -96,12 +98,17 @@ impl Message {
         buf
     }
 
-    pub fn build_bitfield(bitfield: Vec<u8>) -> Vec<u8> {
+    pub fn build_bitfield(mut bitfield: Vec<bool>) -> Vec<u8> {
+
+        while bitfield.len()%8 != 0 {
+            bitfield.push(false);
+        }
+
         let mut buf: Vec<u8> = Vec::new();
         buf.write_u32::<BigEndian>(1+(bitfield.len() as u32)).unwrap();
         buf.write_u8(5).unwrap();
-        for bit in bitfield {
-            buf.write_u8(bit).unwrap();
+        for i in (0..bitfield.len()).step_by(8) {
+            buf.write_u8(bin_to_u8(&bitfield[i..i+8])).unwrap()
         }
         buf
     }

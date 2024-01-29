@@ -49,6 +49,17 @@ pub fn u8_to_bin(n: u8) -> Vec<bool> {
     s
 }
 
+// Convert binary value to u8
+pub fn bin_to_u8(v: &[bool]) -> u8 {
+    let mut no = 0;
+    for i in 0..8 {
+        if v[i] == true {
+            no += 1<<(7-i);
+        }
+    }
+    no
+}
+
 // Generate a random peer id
 pub fn gen_random_id() -> [u8; 20] {
 
@@ -92,7 +103,7 @@ pub async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::helpers::{u8_to_bin, u8_to_url};
+    use crate::helpers::{bin_to_u8, u8_to_bin, u8_to_url};
 
     #[test]
     fn u8_to_bin_test() {
@@ -107,5 +118,12 @@ mod tests {
         let arr: [u8; 20] = [ 18 , 52 , 86 , 120 , 154 , 188 , 222 , 241 , 35 , 69 , 103 , 137 , 171 , 205 , 239 , 18 , 52 , 86 , 120 , 154 ] ;
         assert_eq!(u8_to_url(arr), "%124Vx%9A%BC%DE%F1%23Eg%89%AB%CD%EF%124Vx%9A");
 
+    }
+
+    #[test]
+    fn bin_to_u8_test() {
+        assert_eq!(bin_to_u8(&[true, true, true, true, true, true, true, true]), 255);
+        assert_eq!(bin_to_u8(&[false, false, false, false, true, false, false, false]), 8);
+        assert_eq!(bin_to_u8(&[false, false, false, false, true, false, true, true]), 11);
     }
 }

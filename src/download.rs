@@ -142,10 +142,10 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
     {
         let freq = freq_ref.lock().await;
         if (*piece_left.lock().await as usize) < (*freq).len() {
-            let mut self_field: Vec<u8> = vec![0; (*freq).len()];
+            let mut self_field: Vec<bool> = vec![false; (*freq).len()];
             for (ind, piece) in freq.iter().enumerate() {
                 if piece.completed {
-                    self_field[ind] = 1;
+                    self_field[ind] = true;
                 }
             }
 
