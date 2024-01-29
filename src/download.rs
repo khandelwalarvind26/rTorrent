@@ -139,6 +139,20 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
     let mut requested: LinkedList<u32> = LinkedList::new();
     let mut piece_req: Option<usize> = None;
 
+    {
+        let freq = freq_ref.lock().await;
+        if (*piece_left.lock().await as usize) < (*freq).len() {
+            let mut self_field: Vec<u8> = vec![0; (*freq).len()];
+            for (ind, piece) in freq.iter().enumerate() {
+                if piece.completed {
+                    self_field[ind] = 1;
+                }
+            }
+
+            stream.write_all(&Message::build_bitfield(self_field)).await.unwrap();
+        }
+    }
+
     loop {
         
 
@@ -180,6 +194,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
 
                 // Interested
                 stream.write_all(&Message::build_unchoke()).await.unwrap();
+                println!("Interested");
 
             },
             Some(3) => {

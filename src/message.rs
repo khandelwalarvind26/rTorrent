@@ -96,8 +96,14 @@ impl Message {
         buf
     }
 
-    fn build_bitfield(bitfield: Vec<u8>) -> Message {
-        Message::BitField { length: 1+(bitfield.len() as u32), id: 5, bitfield}
+    pub fn build_bitfield(bitfield: Vec<u8>) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.write_u32::<BigEndian>(1+(bitfield.len() as u32)).unwrap();
+        buf.write_u8(5).unwrap();
+        for bit in bitfield {
+            buf.write_u8(bit).unwrap();
+        }
+        buf
     }
 
     pub fn build_request(index: u32, begin: u32, req_length: u32) -> Vec<u8> {
