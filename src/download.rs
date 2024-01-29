@@ -202,6 +202,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
                 for i in 1..msg.len() {
                     for (j, val) in helpers::u8_to_bin(msg[i as usize]).iter().enumerate() {
 
+                        if !val { continue; }
                         let ind = (i as usize -1)*8 + j;
                         if ind >= bitfield.len() {
                             break;
