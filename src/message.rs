@@ -105,7 +105,7 @@ impl Message {
         }
 
         let mut buf: Vec<u8> = Vec::new();
-        buf.write_u32::<BigEndian>(1+(bitfield.len() as u32)).unwrap();
+        buf.write_u32::<BigEndian>(1+(bitfield.len() as u32/8)).unwrap();
         buf.write_u8(5).unwrap();
         for i in (0..bitfield.len()).step_by(8) {
             buf.write_u8(bin_to_u8(&bitfield[i..i+8])).unwrap()
