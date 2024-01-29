@@ -82,12 +82,18 @@ impl Message {
         buf
     }
 
-    fn build_interested() -> Message {
-        Message::Interested { length: 1, id: 2 }
+    pub fn build_interested() -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.write_u32::<BigEndian>(1).unwrap();
+        buf.write_u8(2).unwrap();
+        buf
     }
 
-    fn build_uninterested() -> Message {
-        Message::Uninterested { length: 1, id: 3 }
+    pub fn build_uninterested() -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        buf.write_u32::<BigEndian>(1).unwrap();
+        buf.write_u8(3).unwrap();
+        buf
     }
 
     fn build_have(piece_index:u32 ) -> Vec<u8> {

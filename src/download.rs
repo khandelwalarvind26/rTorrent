@@ -213,19 +213,29 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
             Some(5) => {
 
                 //bitfield
+                let mut interested = false;
                 let mut freq_arr = freq_ref.lock().await;
                 for i in 1..msg.len() {
                     for (j, val) in helpers::u8_to_bin(msg[i as usize]).iter().enumerate() {
 
                         if !val { continue; }
                         let ind = (i as usize -1)*8 + j;
-                        if ind >= bitfield.len() {
-                            break;
-                        }
                         bitfield[ind] = *val;
                         (*freq_arr)[ind].ref_no += 1;
 
+                        if !(*freq_arr)[ind].completed {
+                            interested = true;
+                        }
+
                     }
+                }
+
+                if interested {
+                    stream.write_all(&Message::build_interested()).await.unwrap();
+                }
+                else {
+                    println!("No");
+                    stream.write_all(&Message::build_uninterested()).await.unwrap();
                 }
 
             },
