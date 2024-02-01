@@ -1,9 +1,5 @@
 use std::{
-    fs::File,
-    net::{Ipv4Addr, SocketAddrV4},
-    os::unix::fs::FileExt,
-    sync::Arc,
-    io::{Write, stdout}, collections::{HashSet, LinkedList}, time::Duration
+    collections::{HashSet, LinkedList}, fs::File, io::{Write, stdout}, net::{Ipv4Addr, SocketAddrV4}, os::unix::fs::FileExt, sync::Arc, time::Duration
 };
 use crossterm::{QueueableCommand, cursor, terminal, ExecutableCommand};
 use sha1_smol::Sha1;
@@ -81,21 +77,9 @@ pub async fn download_file(torrent: Torrent, file_ref: Arc<Vec<(File, u64)>>) {
 async fn connect(peer: (u32,u16), info_hash: [u8; 20], peer_id: [u8; 20]) -> Option<TcpStream> {
 
     let socket = SocketAddrV4::new(Ipv4Addr::from(peer.0),peer.1);
-    let res = timeout(tokio::time::Duration::from_secs(2),TcpStream::connect(socket)).await;
-    match res {
+    let stream = timeout(tokio::time::Duration::from_secs(2),TcpStream::connect(socket)).await.ok()?.ok()?;
 
-        Ok(socket) => {
-            
-            match socket {
-                Ok(stream) => {
-                    handshake(stream, info_hash, peer_id).await
-                },
-                Err(_) => { None }
-            }
-
-        },
-        _ => { None }
-    }
+    handshake(stream, info_hash, peer_id).await
 
 }
 
@@ -109,25 +93,18 @@ async fn handshake(mut stream: TcpStream, info_hash: [u8; 20], peer_id: [u8;20])
 
     // Read handshake response
     let mut buf = Vec::new();
-    let res = timeout(tokio::time::Duration::from_secs(2),stream.read_buf(&mut buf)).await;
+    let bytes_read = timeout(tokio::time::Duration::from_secs(2),stream.read_buf(&mut buf)).await.ok()?.ok()?;
     
-    // Handle handshake response : timeout, recieved - handshake or not?
-    match res {
-        Ok(result) => {
-            match result {
-                Ok(bytes_read) => {
-                    // Check whether response handshake or not
-                    if bytes_read == 64 && String::from_utf8_lossy(&buf[..=19])[1..] == "BitTorrent protocol".to_string() {
-                        // Read waste 4 bytes
-                        let mut tmp = [0; 4];
-                        let _res = timeout(tokio::time::Duration::from_secs(2),stream.read_exact(&mut tmp)).await;
-                        // Handle Torrent further from here
-                        Some(stream)
-                    }
-                    else { None }
-                }, _ => { None }
-            }
-        }, _ => { None }
+    // Check whether response handshake or not
+    if bytes_read == 64 && String::from_utf8_lossy(&buf[..=19])[1..] == "BitTorrent protocol".to_string() {
+        // Read waste 4 bytes
+        let mut tmp = [0; 4];
+        let _res = timeout(tokio::time::Duration::from_secs(2),stream.read_exact(&mut tmp)).await;
+        // Handle Torrent further from here
+        Some(stream)
+    }
+    else {
+        None
     }
 
 }
@@ -159,7 +136,7 @@ async fn handle_connection(mut stream: TcpStream, freq_ref: Arc<Mutex<Vec<Piece>
         // Read length
         let mut msg;
         if let Some(len) = get_length(&mut stream).await {
-            msg = on_whole_msg(&mut stream, len).await;
+            msg = on_whole_msg(&mut stream, len).await.unwrap();
         }
         else { 
             if !requested.is_empty() {
@@ -364,16 +341,7 @@ pub fn verify_piece(piece_length: u64, offset: u64, file: Arc<Vec<(File,u64)>>, 
 async fn get_length(stream: &mut TcpStream) -> Option<u32> {
 
     let mut buf  = [0; 4];
-    let res = timeout(tokio::time::Duration::from_secs(120),stream.read_exact(&mut buf)).await;
-    match res {
-        Ok(resp) => {
-            match resp {
-                Ok(_) => {},
-                _ => { return None; }
-            }
-        },
-        _ => { return None; }
-    }
+    timeout(tokio::time::Duration::from_secs(120),stream.read_exact(&mut buf)).await.ok()?.ok()?;
 
     Some(ReadBytesExt::read_u32::<BigEndian>(&mut buf.as_ref()).unwrap())
 }

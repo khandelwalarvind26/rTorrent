@@ -74,28 +74,15 @@ pub fn gen_random_id() -> [u8; 20] {
 
 // Function which returns message from Tcp Stream only on getting message of entire length provided as input.
 // Will terminate connection if expected length not recieved
-pub async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Vec<u8> {
+pub async fn on_whole_msg(stream: &mut TcpStream, len: u32) -> Option<Vec<u8>> {
 
     let mut ret = Vec::new();
     while ret.len() < len as usize {
         let mut buf = [0];
-        let res = timeout(tokio::time::Duration::from_secs(20),stream.read_exact(&mut buf)).await;
-        match res {
-            Ok(resp) => {
-                match resp {
-                    Ok(_bytes_read) => {},
-                    Err(_) => {
-                        // dbg!(err);
-                    }
-                }
-            },
-            Err(_err) => {
-                // dbg!("Waiting for message timed out");
-            }
-        }
+        timeout(tokio::time::Duration::from_secs(20),stream.read_exact(&mut buf)).await.ok()?.ok()?;
         ret.push(buf[0]);
     }
-    ret
+    Some(ret)
 
 }
 
